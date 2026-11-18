@@ -3,7 +3,8 @@ import type { GeminiService } from '../ai/GeminiService';
 import type { Channel } from '../types/domain';
 import { AppError } from '../utils/errors';
 import type { Logger } from '../utils/logger';
-import type { SessionStore } from './SessionStore';
+import type { PCBuildEngine, PCBuildView } from './PCBuildEngine';
+import type { Session, SessionStore } from './SessionStore';
 
 export interface ConversationInput {
   channel: Channel;
@@ -15,6 +16,8 @@ export interface ConversationResult {
   sessionKey: string;
   reply: string;
   toolsUsed: string[];
+  /** Estado actual del armado de PC de la sesion (null si no hay armado en curso o no hay motor). */
+  build: PCBuildView | null;
 }
 
 export interface ConversationDeps {
@@ -22,6 +25,8 @@ export interface ConversationDeps {
   gemini: GeminiService;
   storeAddress: string;
   log: Logger;
+  /** Opcional: si se entrega, cada respuesta incluye la vista del armado (simulador/panel). */
+  engine?: PCBuildEngine;
   maxInputChars?: number;
 }
 
@@ -59,7 +64,30 @@ export class ConversationService {
         channel: input.channel,
         tools: result.toolsUsed,
       });
-      return { sessionKey, reply: guarded.text, toolsUsed: result.toolsUsed };
+      const build = await this.describeBuild(session.build, sessionKey);
+      return { sessionKey, reply: guarded.text, toolsUsed: result.toolsUsed, build };
     });
+  }
+
+  /** Descarta la sesion (historial + armado en memoria). Devuelve true si existia. */
+  async reset(channel: Channel, externalUserId: string): Promise<boolean> {
+    const id = externalUserId.trim();
+    if (id === '') {
+      throw new AppError('BAD_REQUEST', 'Falta el identificador del usuario', 400);
+    }
+    const sessionKey = `${channel}:${id}`;
+    return this.deps.sessions.runExclusive(sessionKey, async () => this.deps.sessions.delete(sessionKey));
+  }
+
+  /** La vista es informativa: un fallo al calcularla nunca debe tumbar la respuesta al cliente. */
+  private async describeBuild(state: Session['build'], sessionKey: string): Promise<PCBuildView | null> {
+    const { engine, log } = this.deps;
+    if (engine === undefined) return null;
+    try {
+      return await engine.view(state);
+    } catch (error) {
+      log.warn('No se pudo calcular la vista del armado', { session: sessionKey, error });
+      return null;
+    }
   }
 }

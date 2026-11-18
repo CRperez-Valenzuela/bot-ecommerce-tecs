@@ -25,6 +25,8 @@ export interface AppConfig {
   logLevel: LogLevel;
   /** Si se define, POST /api/chat exige el encabezado x-api-key con este valor. */
   chatApiKey: string | null;
+  /** Sirve el simulador web en /demo (carpeta public/demo). */
+  demoEnabled: boolean;
   odooMode: OdooMode;
   mock: { catalogPath: string; leadsPath: string };
   /** Solo presente cuando ODOO_MODE=live. */
@@ -173,6 +175,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: r.int('PORT', 3000, 1, 65535),
     logLevel,
     chatApiKey: r.str('CHAT_API_KEY') || null,
+    demoEnabled: r.bool('DEMO_ENABLED', true),
     odooMode,
     mock: {
       catalogPath: r.str('MOCK_CATALOG_PATH', './data/catalog.mock.json'),

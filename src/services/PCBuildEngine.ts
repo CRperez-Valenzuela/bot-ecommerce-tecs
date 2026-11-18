@@ -69,6 +69,24 @@ export interface BuildSummary extends QuoteSnapshot {
   budgetDeltaUsd: number | null;
 }
 
+/**
+ * Vista serializable del armado para clientes de demostracion/panel: progreso + cotizacion en vivo.
+ * No incluye el producto completo (solo SKU, nombre y precio) para mantener la respuesta liviana.
+ */
+export interface PCBuildView extends BuildProgress {
+  gpuSkipped: boolean;
+  updatedAt: string;
+  /** true cuando estan todos los pasos requeridos (los servicios solo se suman en ese caso). */
+  complete: boolean;
+  services: QuoteLine[];
+  subtotalUsd: number;
+  servicesUsd: number;
+  totalUsd: number;
+  deliveryEta: string;
+  budgetDeltaUsd: number | null;
+  issues: CompatIssue[];
+}
+
 export function createEmptyBuild(now: Date = new Date()): PCBuildState {
   const stamp = now.toISOString();
   return { purpose: null, budgetUsd: null, components: {}, gpuSkipped: false, createdAt: stamp, updatedAt: stamp };
@@ -280,6 +298,28 @@ export class PCBuildEngine {
       missing,
       issues: evaluateBuild(build.components),
       budgetDeltaUsd: build.budgetUsd === null ? null : round2(totalUsd - build.budgetUsd),
+    };
+  }
+
+  /** Vista del armado para paneles/demos. Devuelve null si la sesion aun no inicio ningun armado. */
+  async view(build: PCBuildState): Promise<PCBuildView | null> {
+    const started = build.purpose !== null || build.budgetUsd !== null || build.gpuSkipped;
+    if (!started && Object.keys(build.components).length === 0) return null;
+
+    const progress = this.progress(build);
+    const summary = await this.summarize(build);
+    return {
+      ...progress,
+      gpuSkipped: build.gpuSkipped,
+      updatedAt: build.updatedAt,
+      complete: summary.complete,
+      services: summary.services,
+      subtotalUsd: summary.subtotalUsd,
+      servicesUsd: summary.servicesUsd,
+      totalUsd: summary.totalUsd,
+      deliveryEta: summary.deliveryEta,
+      budgetDeltaUsd: summary.budgetDeltaUsd,
+      issues: summary.issues,
     };
   }
 

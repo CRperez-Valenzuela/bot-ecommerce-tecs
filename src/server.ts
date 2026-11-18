@@ -30,7 +30,12 @@ function main(): void {
 
   const app = createApp(container);
   const server = app.listen(config.port, () => {
-    log.info('Servidor iniciado', { port: config.port, odooMode: config.odooMode, env: config.nodeEnv });
+    log.info('Servidor iniciado', {
+      port: config.port,
+      odooMode: config.odooMode,
+      env: config.nodeEnv,
+      ...(config.demoEnabled ? { demo: `http://localhost:${config.port}/demo/` } : {}),
+    });
   });
 
   const shutdown = (signal: string): void => {

@@ -21,7 +21,13 @@ curl -s localhost:3000/api/chat -H "content-type: application/json" \
 ```
 
 La respuesta incluye un `sessionId`: reenvialo para continuar la conversacion. Con `"channel":"mercadolibre"` se
-prueban las politicas de seguridad de ese canal.
+prueban las politicas de seguridad de ese canal. Si el armado de PC esta en curso, `data.build` trae su estado.
+
+### Simulador web de demostracion
+
+Abre **http://localhost:3000/demo/** para chatear desde el navegador: elige canal (WhatsApp, Instagram, Mercado Libre),
+usa las pruebas rapidas y mira en vivo como la IA va llenando el armado de PC y calculando el montaje. Si defines
+`CHAT_API_KEY`, la pagina pide la clave en un modal y la envia en `x-api-key`. Desactivalo con `DEMO_ENABLED=false`.
 
 ## Arquitectura
 
@@ -30,8 +36,9 @@ prueban las politicas de seguridad de ese canal.
 | Datos (patron adaptador) | `src/repositories` | `IInventoryRepository` + `MockRepository` (JSON local) + `OdooRepository` (XML-RPC) |
 | Negocio | `src/services` | Curaduria (max. 3 opciones, desambiguacion), compatibilidad, motor de armado de PC, sesiones |
 | IA | `src/ai` | Prompt del sistema, declaracion/ejecucion de herramientas, bucle de Function Calling con Gemini, filtro de salida por canal |
+| Demo | `public/demo` | Simulador web (HTML/CSS/JS vanilla, sin dependencias) |
 | Canales | `src/channels` | WhatsApp Cloud API, Instagram DM, Mercado Libre (webhooks + envio) |
-| HTTP | `src/app.ts`, `src/routes` | Express: `/health`, `/api/chat`, `/webhooks/*`; errores `{ success:false, error:{ code, message, details } }` |
+| HTTP | `src/app.ts`, `src/routes` | Express: `/health`, `/api/chat` (+ `/config`, `/reset`), `/webhooks/*`, `/demo`; errores `{ success:false, error:{ code, message, details } }` |
 
 ## Pasar a Odoo real (`ODOO_MODE=live`)
 

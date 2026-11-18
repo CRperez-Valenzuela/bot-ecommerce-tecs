@@ -79,6 +79,7 @@ export function buildContainer(config: AppConfig, log: Logger, overrides: Contai
     sessions,
     gemini,
     storeAddress: config.store.address,
+    engine,
     log: log.child({ component: 'conversation' }),
   });
 

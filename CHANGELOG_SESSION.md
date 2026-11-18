@@ -1,16 +1,125 @@
-# CHANGELOG_SESSION — Estructura base del backend (2026-11-17)
+# CHANGELOG_SESSION
+
+Rama de trabajo: `development`. Cada sesión se aplica con `node apply-update.js` en la raíz del proyecto
+(`--dry-run` muestra qué haría sin escribir). El `apply-update.js` de cada sesión contiene **solo** los archivos
+creados o modificados en ella.
+
+---
+
+## Sesión 2 — Simulador web de chat para demostración (2026-11-17)
+
+Página de demostración en `http://localhost:3000/demo/` (HTML + CSS + JS vanilla en un solo archivo, sin frameworks
+ni CDNs) para mostrarle al dueño de TECS cómo atiende el asistente y cómo se arma una PC paso a paso.
+
+### Qué incluye el simulador
+
+1. **App de mensajería** con identidad TECS (barra azul marino, acento naranja, logotipo de texto), burbujas
+   por canal (verde WhatsApp, degradado Instagram, amarillo Mercado Libre), indicador de escritura, errores con
+   botón **Reintentar** y diseño adaptable: en escritorio el panel va al lado; en móvil es un cajón deslizable
+   con insignia de progreso (`3/7`) en el botón.
+2. **Selector de canal** (`whatsapp | instagram | mercadolibre`) en la barra superior; envía `channel` a
+   `POST /api/chat`. Cada conversación genera un `sessionId` propio (`demo-<16 hex>`). **Nueva conversación**
+   libera la sesión anterior en el servidor (`POST /api/chat/reset`) y abre otra. Cambiar de canal también abre
+   una conversación nueva (el servidor guarda el estado por canal + sessionId; mezclar canales confundiría el historial).
+3. **Pruebas rápidas** (plegables): armado (“Quiero armar una PC gamer de $800”, oficina, edición, “Muéstrame
+   cómo va mi armado”), consultas (“¿Qué cases tienen?”, “Busco una laptop”, “¿Tienen Ryzen 5 5600G?”,
+   “¿Tienen Ryzen 7 5700X?” — agotado a propósito) y seguridad de canal (dirección y teléfono, para probar el filtro
+   de Mercado Libre). **Visor del armado en vivo**: propósito, presupuesto, barra de gasto, los 7 pasos
+   (hecho / siguiente / omitido), compatibilidad (errores y avisos), servicios de ensamblaje, total, diferencia
+   contra el presupuesto, tiempo de entrega y el JSON completo. Lo recién elegido se resalta.
+4. **`CHAT_API_KEY`**: la página consulta `GET /api/chat/config`; si el servidor exige clave, abre un modal
+   (`<dialog>`) para ingresarla, la guarda en `localStorage` y la envía en `x-api-key`. Ante un `401` reabre el
+   modal y reenvía el mensaje pendiente al guardar. Un botón con candado permite cambiarla o quitarla.
+5. Casilla **“Ver detalle técnico”**: muestra las herramientas que usó el modelo por mensaje y los SKU.
+
+### Archivos
+
+**Nuevos:** `public/demo/index.html`, `src/routes/chat.handlers.ts`, `tests/demo-simulator.test.ts`, `tests/helpers/fakeLlm.ts`
+
+**Modificados:** `src/app.ts` (sirve `/demo` con `express.static`, CSP y `nosniff`), `src/routes/chat.routes.ts`
+(ahora delgado: delega en `chat.handlers.ts`), `src/services/ConversationService.ts` (`build` en el resultado + `reset`),
+`src/services/PCBuildEngine.ts` (`view()` y tipo `PCBuildView`), `src/container.ts` (inyecta el motor a la conversación),
+`src/config/env.ts` (`DEMO_ENABLED`), `src/server.ts` (log con la URL del demo), `.env.example`, `README.md`, `CHANGELOG_SESSION.md`
+
+### Contrato HTTP (cambios)
+
+| Ruta | Auth | Descripción |
+| --- | --- | --- |
+| `GET /demo/` | no | Simulador (solo si `DEMO_ENABLED=true`) |
+| `GET /api/chat/config` | no | `{ requiresApiKey, storeName, mode, geminiConfigured, maxMessageChars }`. Nunca devuelve la clave |
+| `POST /api/chat` | `x-api-key` si hay clave | **Nuevo campo `data.build`**: `PCBuildView` o `null` si no hay armado en curso |
+| `POST /api/chat/reset` | `x-api-key` si hay clave | Body `{ sessionId, channel? }` → `{ sessionId, channel, reset }` (`reset:false` si ya no existía) |
+
+`data.build` (`PCBuildView`): `purpose`, `budgetUsd`, `selected[{category,sku,name,priceUsd}]`, `nextStep`, `remainingSteps`,
+`gpuOptional`, `gpuSkipped`, `spentUsd`, `complete`, `services[]`, `subtotalUsd`, `servicesUsd`, `totalUsd`, `deliveryEta`,
+`budgetDeltaUsd`, `issues[{code,severity,message,categories}]`, `updatedAt`. Los servicios solo se suman al completar el armado.
+Los errores siguen el formato `{ success:false, error:{ code, message, details } }`.
+
+### Variables de entorno nuevas
+
+| Variable | Obligatoria | Por defecto | Uso |
+| --- | --- | --- | --- |
+| `DEMO_ENABLED` | no | `true` | `false` desactiva `/demo`. Valor inválido ⇒ `CONFIG_ERROR` al arrancar |
+
+(`CHAT_API_KEY` ya existía y ahora también protege `/api/chat/reset`.)
+
+### Decisiones de diseño
+
+- **Lógica fuera de Express:** `chat.handlers.ts` contiene funciones puras (`handleChat`, `handleReset`, `getChatConfig`);
+  las rutas solo adaptan `req`/`res`. Así la autenticación, validación y forma de respuesta se probaron sin depender de Express.
+- **La vista del armado es informativa:** si `engine.view()` falla (p. ej. Odoo caído al listar servicios), la respuesta al
+  cliente sigue su curso con `build: null` y se registra un aviso.
+- **Seguridad de la página:** todo el texto (incluidas las respuestas del modelo) se inserta como nodos de texto, nunca como HTML;
+  CSP restrictiva (`default-src 'none'`, solo scripts/estilos en línea, `connect-src 'self'`); sin recursos externos.
+  La clave de API vive solo en `localStorage` del navegador de quien la escribe.
+- **Colores e identidad:** no se dispone del manual de marca de TECS; los colores son provisionales y están en variables CSS al
+  inicio del archivo (`--navy`, `--blue`, `--orange`), y el logotipo es texto. Basta cambiarlos ahí.
+- **Seguridad en producción:** `/demo` es una página estática pública; lo sensible es `/api/chat`. Sin `CHAT_API_KEY` esa ruta
+  queda abierta (el servidor ya lo advierte al arrancar en producción). Para una instalación en producción sin demo: `DEMO_ENABLED=false`.
+
+### Verificación realizada
+
+- `tsc` estricto: 0 errores. **131 pruebas** (21 nuevas) pasan: vista del armado (vacío / en curso / completo / sin GPU),
+  reinicio por canal + sessionId, fallo de la vista sin tumbar la respuesta, autenticación (4 claves inválidas), validación del
+  cuerpo, `debug` según entorno, `config` sin filtrar la clave, `DEMO_ENABLED`, y revisiones estáticas del HTML (sin URLs externas,
+  JS que compila, sin `eval`/HTML dinámico, ids existentes y únicos, categorías del visor = categorías del motor).
+- Pruebas de mutación: 5 regresiones introducidas a propósito (reset que no borra, auth omitida, vista sin filtro de “sin armado”,
+  `build` descartado, cabecera `x-api-key` cambiada); las 5 fueron detectadas.
+- **Prueba de punta a punta en Chrome headless** contra los handlers reales (`ConversationService`, motor, catálogo mock) con un LLM
+  simulado: armado completo de 7 pasos con total y servicios, cambio a Mercado Libre (teléfono y enlace eliminados), error 502 con
+  “Reintentar”, nueva conversación, y flujo de clave (modal automático, clave errónea ⇒ modal con mensaje, clave correcta ⇒ reenvío
+  automático, persistencia tras recargar, quitar clave). Escritorio 1280×820 y móvil 390×844 sin desbordamiento horizontal.
+  **Con la CSP real activa: 0 violaciones ni errores de consola.**
+
+### Lo que NO se pudo verificar
+
+- **`express.static` y las cabeceras en `app.ts` con Express real** (sin red para `npm install`): se comprobó con tipos de apoyo y,
+  para la página, con un servidor `node:http` que aplica la misma CSP. Primer paso: `npm install && npm run dev` y abrir `/demo/`.
+- **Gemini real:** la prueba usó un modelo simulado; la latencia y el texto reales pueden variar (tiempo de espera del navegador: 120 s).
+- **Navegadores:** probado en Chrome (escritorio y emulación móvil). No se probó en Safari ni Firefox.
+
+### Pendientes / siguientes pasos sugeridos
+
+1. `Dockerfile`, `docker-compose.yml`, `install.sh`: la imagen **debe copiar `public/`** además de `dist/` y `data/` (el servidor lo busca en `<raíz>/public`).
+2. Límite de tasa por IP en `/api/chat` (protege el costo de Gemini; el simulador lo hace más fácil de alcanzar).
+3. Logotipo y colores oficiales de TECS en el simulador.
+4. Pendientes de la sesión 1 (abajo).
+
+---
+
+## Sesión 1 — Estructura base del backend (2026-11-17)
 
 Rama de trabajo: `development` (partía solo con `README.md` y `.gitignore`).
 Aplicar con `node apply-update.js` en la raíz del proyecto (`--dry-run` para ver qué haría sin escribir).
 
-## Resumen
+### Resumen
 
 Backend completo en Node.js + TypeScript + Express con patrón adaptador `ODOO_MODE=mock | live`:
 catálogo mock (35 productos + 3 servicios), `MockRepository`, `OdooRepository` (XML-RPC propio, sin dependencias),
 servicio de Gemini con Function Calling, motor de armado de PC en memoria, adaptadores de canal
 (WhatsApp, Instagram, Mercado Libre) y suite de pruebas.
 
-## Archivos
+### Archivos
 
 **Modificados (ya existían):** `README.md` (reemplazado por guía de inicio), `.gitignore` (mismas 4 reglas + `coverage/` y archivos de leads mock).
 
@@ -32,7 +141,7 @@ servicio de Gemini con Function Calling, motor de armado de PC en memoria, adapt
 
 **`tests/`:** 7 archivos `*.test.ts` + `helpers/{fixtures,fakeOdoo}.ts` (servidor Odoo XML-RPC simulado)
 
-## Variables de entorno
+### Variables de entorno
 
 | Variable | Obligatoria | Por defecto | Uso |
 | --- | --- | --- | --- |
@@ -53,10 +162,11 @@ servicio de Gemini con Function Calling, motor de armado de PC en memoria, adapt
 | `META_APP_SECRET` | **sí en producción** | — | Valida `X-Hub-Signature-256` |
 | `META_GRAPH_VERSION` | no | `v23.0` | Versión del Graph API (verificar la vigente) |
 | `MERCADOLIBRE_ACCESS_TOKEN`, `_REFRESH_TOKEN`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_SELLER_ID` | para ese canal | — | Mercado Libre |
-| `CHAT_API_KEY` | recomendada en producción | — | Protege `POST /api/chat` (header `x-api-key`) |
+| `CHAT_API_KEY` | recomendada en producción | — | Protege `POST /api/chat` y `POST /api/chat/reset` (header `x-api-key`) |
+| `DEMO_ENABLED` | no | `true` | Sirve el simulador web en `/demo` (sesión 2) |
 | `PORT`, `NODE_ENV`, `LOG_LEVEL` | no | `3000`, `development`, `info` | Servidor |
 
-## Decisiones de diseño que conviene conocer
+### Decisiones de diseño que conviene conocer
 
 - **Reglas comerciales aplicadas en código, no solo en el prompt:** consulta vaga ⇒ la herramienta responde `NEEDS_CLARIFICATION` con las preguntas y no consulta inventario; tope de 3 productos por mensaje (`DISPLAY_LIMIT_REACHED`) aunque el modelo encadene búsquedas; los repositorios filtran `stock > 0` y recortan a `limit 5`.
 - **Excepciones deliberadas al filtro de stock** (documentadas en la interfaz): `lookupByName`/`getProductBySku` devuelven también agotados para poder decir "agotado" con precio exacto, y `listServices` (los servicios no tienen stock). Todas conservan el tope de 5.
@@ -66,7 +176,7 @@ servicio de Gemini con Function Calling, motor de armado de PC en memoria, adapt
 - **Compatibilidad:** socket CPU/placa, DDR RAM/placa, formato placa/case, largo de GPU/case y potencia de fuente (TDP + 120 W). Si falta una especificación se emite advertencia, no bloqueo.
 - **Presupuesto por paso:** reparto por propósito (gaming/creación/oficina) descontando servicios y redistribuyendo lo ya gastado; si nada cabe, ofrece las 2 más económicas marcadas `overBudget`.
 
-## Verificación realizada
+### Verificación realizada
 
 - `tsc` en modo estricto (`strict`, `noUnusedLocals`, `noUnusedParameters`): 0 errores; `build` emite `dist/server.js` y el CJS compilado carga.
 - 110 pruebas en 22 suites: todas pasan. Incluyen paridad Mock vs Odoo (13 consultas, mismo orden de SKUs) contra un servidor Odoo XML-RPC simulado con evaluador de dominios, y el flujo completo de armado.
@@ -74,14 +184,14 @@ servicio de Gemini con Function Calling, motor de armado de PC en memoria, adapt
 - Exploración de 42 escenarios (3 propósitos × 7 presupuestos × elección primera/última): 0 callejones sin salida, 0 incompatibilidades.
 - Revisión estática: sin `any`, sin residuos de otros proyectos, sin secretos, capas de negocio sin dependencia de implementaciones de datos.
 
-## Lo que NO se pudo verificar (sin red para `npm install`)
+### Lo que NO se pudo verificar (sin red para `npm install`)
 
 - **Capa Express** (`app.ts`, `routes/`, `middleware/`): comprobada con tipos de apoyo locales, **no ejecutada contra `express` real**. Primer paso al instalar: `npm install && npm run typecheck && npm test && npm run dev`.
 - **`@google/genai`**: tipado modelado desde la API pública, no compilado contra el paquete real ni probado contra la API de Gemini. Verifica `GEMINI_MODEL` (el alias `gemini-flash-latest` cambia de modelo con el tiempo; conviene fijar uno).
 - **Odoo, WhatsApp, Instagram y Mercado Libre reales:** probados solo contra simulaciones. Los payloads siguen la documentación de cada plataforma, pero requieren una prueba de punta a punta con credenciales.
 - **Catálogo:** modelos reales, pero precios, stock y varias especificaciones (p. ej. largo máximo de GPU de algunos cases) son **valores de demostración** a validar con la tienda.
 
-## Pendientes / siguientes pasos sugeridos
+### Pendientes / siguientes pasos sugeridos
 
 1. `Dockerfile`, `docker-compose.yml`, `install.sh` (entrega "llave en mano").
 2. Límite de tasa por usuario/IP (protege el costo de Gemini en `/api/chat` y webhooks).
