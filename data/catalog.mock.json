@@ -1,0 +1,417 @@
+{
+  "_meta": {
+    "descripcion": "Catalogo de demostracion TECS Acarigua (modo ODOO_MODE=mock). Modelos reales del mercado con precios y existencias REFERENCIALES de demo; las especificaciones deben validarse contra la ficha del fabricante antes de usarse en ventas reales.",
+    "moneda": "USD",
+    "version": "2026-11-17"
+  },
+  "products": [
+    {
+      "sku": "CPU-R5-5600G",
+      "name": "AMD Ryzen 5 5600G",
+      "brand": "AMD",
+      "category": "cpu",
+      "price_usd": 128,
+      "stock": 6,
+      "specs": { "socket": "AM4", "memory_type": "DDR4", "cores": 6, "threads": 12, "tdp_w": 65, "igpu": true },
+      "tags": ["oficina", "estudio", "economico", "video integrado", "gaming basico"],
+      "summary": "6 nucleos / 12 hilos con graficos Radeon integrados; ideal para una PC economica sin tarjeta de video."
+    },
+    {
+      "sku": "CPU-R5-5600",
+      "name": "AMD Ryzen 5 5600",
+      "brand": "AMD",
+      "category": "cpu",
+      "price_usd": 108,
+      "stock": 8,
+      "specs": { "socket": "AM4", "memory_type": "DDR4", "cores": 6, "threads": 12, "tdp_w": 65, "igpu": false },
+      "tags": ["gaming", "economico", "equilibrado"],
+      "summary": "6 nucleos / 12 hilos, excelente relacion precio-rendimiento para gaming con tarjeta de video dedicada."
+    },
+    {
+      "sku": "CPU-R7-5700X",
+      "name": "AMD Ryzen 7 5700X",
+      "brand": "AMD",
+      "category": "cpu",
+      "price_usd": 168,
+      "stock": 0,
+      "specs": { "socket": "AM4", "memory_type": "DDR4", "cores": 8, "threads": 16, "tdp_w": 65, "igpu": false },
+      "tags": ["gaming", "edicion", "creacion"],
+      "summary": "8 nucleos / 16 hilos para gaming exigente y edicion."
+    },
+    {
+      "sku": "CPU-R7-5700X3D",
+      "name": "AMD Ryzen 7 5700X3D",
+      "brand": "AMD",
+      "category": "cpu",
+      "price_usd": 238,
+      "stock": 3,
+      "specs": { "socket": "AM4", "memory_type": "DDR4", "cores": 8, "threads": 16, "tdp_w": 105, "igpu": false },
+      "tags": ["gaming", "premium", "edicion"],
+      "summary": "8 nucleos con cache 3D V-Cache: lo mejor en gaming dentro de la plataforma AM4."
+    },
+    {
+      "sku": "CPU-R5-7600",
+      "name": "AMD Ryzen 5 7600",
+      "brand": "AMD",
+      "category": "cpu",
+      "price_usd": 205,
+      "stock": 4,
+      "specs": { "socket": "AM5", "memory_type": "DDR5", "cores": 6, "threads": 12, "tdp_w": 65, "igpu": true },
+      "tags": ["gaming", "oficina", "plataforma actual", "am5"],
+      "summary": "Plataforma AM5 con DDR5 y graficos integrados basicos; camino de actualizacion a futuro."
+    },
+    {
+      "sku": "CPU-I5-12400F",
+      "name": "Intel Core i5-12400F",
+      "brand": "Intel",
+      "category": "cpu",
+      "price_usd": 135,
+      "stock": 7,
+      "specs": { "socket": "LGA1700", "memory_type": "DDR4", "cores": 6, "threads": 12, "tdp_w": 65, "igpu": false },
+      "tags": ["gaming", "equilibrado", "intel"],
+      "summary": "6 nucleos / 12 hilos, muy buen rendimiento por dolar; requiere tarjeta de video dedicada."
+    },
+    {
+      "sku": "MB-B450M-HDV",
+      "name": "ASRock B450M-HDV R4.0",
+      "brand": "ASRock",
+      "category": "motherboard",
+      "price_usd": 62,
+      "stock": 5,
+      "specs": { "socket": "AM4", "memory_type": "DDR4", "form_factor": "mATX", "chipset": "B450" },
+      "tags": ["economico", "basica", "oficina"],
+      "summary": "Placa mATX AM4 sencilla y economica."
+    },
+    {
+      "sku": "MB-B550M-PRO-VDH",
+      "name": "MSI B550M PRO-VDH WiFi",
+      "brand": "MSI",
+      "category": "motherboard",
+      "price_usd": 108,
+      "stock": 4,
+      "specs": { "socket": "AM4", "memory_type": "DDR4", "form_factor": "mATX", "chipset": "B550" },
+      "tags": ["wifi", "equilibrada", "gaming"],
+      "summary": "Placa mATX AM4 B550 con WiFi integrado y soporte PCIe 4.0."
+    },
+    {
+      "sku": "MB-B550-AORUS-ELITE-V2",
+      "name": "Gigabyte B550 AORUS ELITE V2",
+      "brand": "Gigabyte",
+      "category": "motherboard",
+      "price_usd": 148,
+      "stock": 2,
+      "specs": { "socket": "AM4", "memory_type": "DDR4", "form_factor": "ATX", "chipset": "B550" },
+      "tags": ["premium", "gaming", "atx", "edicion"],
+      "summary": "Placa ATX AM4 B550 con VRM robusto, ideal para procesadores de 8 nucleos."
+    },
+    {
+      "sku": "MB-B650M-A-II",
+      "name": "ASUS PRIME B650M-A II",
+      "brand": "ASUS",
+      "category": "motherboard",
+      "price_usd": 152,
+      "stock": 3,
+      "specs": { "socket": "AM5", "memory_type": "DDR5", "form_factor": "mATX", "chipset": "B650" },
+      "tags": ["plataforma actual", "am5", "equilibrada"],
+      "summary": "Placa mATX AM5 con DDR5 y PCIe 4.0/5.0 para M.2."
+    },
+    {
+      "sku": "MB-B760M-E-D4",
+      "name": "MSI PRO B760M-E DDR4",
+      "brand": "MSI",
+      "category": "motherboard",
+      "price_usd": 96,
+      "stock": 5,
+      "specs": { "socket": "LGA1700", "memory_type": "DDR4", "form_factor": "mATX", "chipset": "B760" },
+      "tags": ["intel", "economico", "equilibrada"],
+      "summary": "Placa mATX LGA1700 con DDR4 para procesadores Intel de 12.a a 14.a generacion."
+    },
+    {
+      "sku": "RAM-KF-16-D4",
+      "name": "Kingston FURY Beast 16GB (2x8GB) DDR4-3200",
+      "brand": "Kingston",
+      "category": "ram",
+      "price_usd": 44,
+      "stock": 10,
+      "specs": { "memory_type": "DDR4", "capacity_gb": 16, "speed_mhz": 3200 },
+      "tags": ["economico", "gaming", "oficina"],
+      "summary": "Kit dual channel de 16 GB, suficiente para gaming y uso diario."
+    },
+    {
+      "sku": "RAM-CV-32-D4",
+      "name": "Corsair Vengeance LPX 32GB (2x16GB) DDR4-3200",
+      "brand": "Corsair",
+      "category": "ram",
+      "price_usd": 82,
+      "stock": 4,
+      "specs": { "memory_type": "DDR4", "capacity_gb": 32, "speed_mhz": 3200 },
+      "tags": ["edicion", "creacion", "multitarea"],
+      "summary": "Kit dual channel de 32 GB para edicion de video, diseno y multitarea pesada."
+    },
+    {
+      "sku": "RAM-KF-16-D5",
+      "name": "Kingston FURY Beast 16GB (2x8GB) DDR5-5600",
+      "brand": "Kingston",
+      "category": "ram",
+      "price_usd": 66,
+      "stock": 6,
+      "specs": { "memory_type": "DDR5", "capacity_gb": 16, "speed_mhz": 5600 },
+      "tags": ["plataforma actual", "gaming"],
+      "summary": "Kit DDR5 dual channel de 16 GB para plataformas AM5."
+    },
+    {
+      "sku": "SSD-NV2-500",
+      "name": "Kingston NV2 500GB NVMe PCIe 4.0",
+      "brand": "Kingston",
+      "category": "storage",
+      "price_usd": 36,
+      "stock": 12,
+      "specs": { "kind": "NVMe", "capacity_gb": 500 },
+      "tags": ["economico", "oficina"],
+      "summary": "SSD NVMe de 500 GB: arranque y carga de programas muy rapidos."
+    },
+    {
+      "sku": "SSD-SN580-1T",
+      "name": "WD Blue SN580 1TB NVMe",
+      "brand": "Western Digital",
+      "category": "storage",
+      "price_usd": 68,
+      "stock": 7,
+      "specs": { "kind": "NVMe", "capacity_gb": 1000 },
+      "tags": ["gaming", "edicion", "equilibrado"],
+      "summary": "SSD NVMe de 1 TB con gran velocidad y capacidad para juegos y proyectos."
+    },
+    {
+      "sku": "SSD-A400-480",
+      "name": "Kingston A400 480GB SATA SSD",
+      "brand": "Kingston",
+      "category": "storage",
+      "price_usd": 32,
+      "stock": 9,
+      "specs": { "kind": "SATA SSD", "capacity_gb": 480 },
+      "tags": ["economico", "oficina", "basico"],
+      "summary": "SSD SATA economico para renovar equipos o armados de bajo costo."
+    },
+    {
+      "sku": "GPU-RTX3050-6G",
+      "name": "ASUS Dual GeForce RTX 3050 6GB",
+      "brand": "ASUS",
+      "category": "gpu",
+      "price_usd": 178,
+      "stock": 3,
+      "specs": { "vram_gb": 6, "tdp_w": 70, "gpu_length_mm": 200, "recommended_psu_w": 300 },
+      "tags": ["gaming", "economico", "1080p"],
+      "summary": "Entrada al gaming 1080p con DLSS; compacta y de bajo consumo."
+    },
+    {
+      "sku": "GPU-RX6600-8G",
+      "name": "PowerColor Fighting Radeon RX 6600 8GB",
+      "brand": "PowerColor",
+      "category": "gpu",
+      "price_usd": 212,
+      "stock": 2,
+      "specs": { "vram_gb": 8, "tdp_w": 132, "gpu_length_mm": 240, "recommended_psu_w": 450 },
+      "tags": ["gaming", "1080p", "equilibrado"],
+      "summary": "8 GB de VRAM, muy buena para gaming 1080p en calidad alta."
+    },
+    {
+      "sku": "GPU-RTX4060-8G",
+      "name": "MSI GeForce RTX 4060 VENTUS 2X BLACK 8GB",
+      "brand": "MSI",
+      "category": "gpu",
+      "price_usd": 305,
+      "stock": 5,
+      "specs": { "vram_gb": 8, "tdp_w": 115, "gpu_length_mm": 199, "recommended_psu_w": 550 },
+      "tags": ["gaming", "1080p", "1440p", "edicion", "dlss"],
+      "summary": "Eficiente, con DLSS 3 y aceleracion para edicion; gran opcion calidad-precio."
+    },
+    {
+      "sku": "GPU-RTX4070S-12G",
+      "name": "Gigabyte GeForce RTX 4070 SUPER WINDFORCE OC 12GB",
+      "brand": "Gigabyte",
+      "category": "gpu",
+      "price_usd": 640,
+      "stock": 2,
+      "specs": { "vram_gb": 12, "tdp_w": 220, "gpu_length_mm": 261, "recommended_psu_w": 650 },
+      "tags": ["gaming", "1440p", "edicion", "creacion", "premium"],
+      "summary": "12 GB de VRAM para gaming 1440p, edicion de video 4K y render."
+    },
+    {
+      "sku": "PSU-CM-MWE550",
+      "name": "Cooler Master MWE 550 Bronze V2 550W",
+      "brand": "Cooler Master",
+      "category": "psu",
+      "price_usd": 54,
+      "stock": 6,
+      "specs": { "wattage_w": 550, "certification": "80+ Bronze" },
+      "tags": ["economico", "oficina", "gaming basico"],
+      "summary": "Fuente certificada 80+ Bronze de 550 W para equipos de gama media-baja."
+    },
+    {
+      "sku": "PSU-CV650",
+      "name": "Corsair CV650 650W 80+ Bronze",
+      "brand": "Corsair",
+      "category": "psu",
+      "price_usd": 68,
+      "stock": 5,
+      "specs": { "wattage_w": 650, "certification": "80+ Bronze" },
+      "tags": ["gaming", "equilibrado"],
+      "summary": "Fuente certificada de 650 W, holgada para tarjetas de video de gama media."
+    },
+    {
+      "sku": "PSU-RM750E",
+      "name": "Corsair RM750e 750W 80+ Gold",
+      "brand": "Corsair",
+      "category": "psu",
+      "price_usd": 118,
+      "stock": 3,
+      "specs": { "wattage_w": 750, "certification": "80+ Gold" },
+      "tags": ["premium", "gaming", "edicion", "silenciosa"],
+      "summary": "Fuente totalmente modular 80+ Gold de 750 W, silenciosa y eficiente."
+    },
+    {
+      "sku": "CASE-CM-MB520",
+      "name": "Cooler Master MasterBox MB520 ARGB",
+      "brand": "Cooler Master",
+      "category": "case",
+      "price_usd": 74,
+      "stock": 4,
+      "specs": { "form_factors": ["ATX", "mATX", "ITX"], "max_gpu_length_mm": 410, "style": "gamer", "color": "negro" },
+      "tags": ["gamer", "rgb", "atx", "airflow"],
+      "summary": "Torre ATX gamer con 3 ventiladores ARGB frontales y panel de vidrio."
+    },
+    {
+      "sku": "CASE-NZXT-H510",
+      "name": "NZXT H510 Blanco",
+      "brand": "NZXT",
+      "category": "case",
+      "price_usd": 86,
+      "stock": 2,
+      "specs": { "form_factors": ["ATX", "mATX", "ITX"], "max_gpu_length_mm": 381, "style": "sobrio", "color": "blanco" },
+      "tags": ["sobrio", "blanco", "minimalista", "atx"],
+      "summary": "Torre ATX minimalista en blanco, limpia y con excelente gestion de cables."
+    },
+    {
+      "sku": "CASE-C4000D",
+      "name": "Corsair 4000D Airflow",
+      "brand": "Corsair",
+      "category": "case",
+      "price_usd": 105,
+      "stock": 3,
+      "specs": { "form_factors": ["ATX", "mATX", "ITX"], "max_gpu_length_mm": 360, "style": "sobrio", "color": "negro" },
+      "tags": ["sobrio", "airflow", "atx", "premium"],
+      "summary": "Torre ATX de maxima ventilacion con frente perforado y montaje sencillo."
+    },
+    {
+      "sku": "CASE-CM-Q300LV2",
+      "name": "Cooler Master MasterBox Q300L V2",
+      "brand": "Cooler Master",
+      "category": "case",
+      "price_usd": 52,
+      "stock": 5,
+      "specs": { "form_factors": ["mATX", "ITX"], "max_gpu_length_mm": 360, "style": "compacto", "color": "negro" },
+      "tags": ["compacto", "sobrio", "matx", "economico"],
+      "summary": "Case mATX compacto y versatil, con filtros de polvo magneticos."
+    },
+    {
+      "sku": "CASE-ANTEC-NX200M",
+      "name": "Antec NX200M RGB",
+      "brand": "Antec",
+      "category": "case",
+      "price_usd": 49,
+      "stock": 6,
+      "specs": { "form_factors": ["mATX", "ITX"], "max_gpu_length_mm": 340, "style": "gamer", "color": "negro" },
+      "tags": ["gamer", "rgb", "matx", "economico"],
+      "summary": "Case mATX gamer con frente RGB y buena ventilacion a bajo costo."
+    },
+    {
+      "sku": "CASE-AERO-CYLON-MINI",
+      "name": "Aerocool Cylon Mini ARGB",
+      "brand": "Aerocool",
+      "category": "case",
+      "price_usd": 42,
+      "stock": 4,
+      "specs": { "form_factors": ["mATX", "ITX"], "max_gpu_length_mm": 330, "style": "gamer", "color": "negro" },
+      "tags": ["gamer", "rgb", "matx", "economico", "compacto"],
+      "summary": "Case mATX con iluminacion ARGB y panel lateral templado."
+    },
+    {
+      "sku": "CASE-TT-VERSA-H18",
+      "name": "Thermaltake Versa H18",
+      "brand": "Thermaltake",
+      "category": "case",
+      "price_usd": 38,
+      "stock": 8,
+      "specs": { "form_factors": ["mATX", "ITX"], "max_gpu_length_mm": 350, "style": "sobrio", "color": "negro" },
+      "tags": ["economico", "sobrio", "matx", "oficina", "basico"],
+      "summary": "Case mATX economico y sobrio, ideal para equipos de oficina y estudio."
+    },
+    {
+      "sku": "CASE-LL-LANCOOL216",
+      "name": "Lian Li Lancool 216",
+      "brand": "Lian Li",
+      "category": "case",
+      "price_usd": 119,
+      "stock": 2,
+      "specs": { "form_factors": ["ATX", "mATX", "ITX"], "max_gpu_length_mm": 392, "style": "gamer", "color": "negro" },
+      "tags": ["gamer", "premium", "airflow", "atx", "edicion"],
+      "summary": "Torre ATX de alto flujo de aire con 2 ventiladores de 160 mm; ideal para GPUs grandes."
+    },
+    {
+      "sku": "LAP-IDEAPAD-1-15",
+      "name": "Lenovo IdeaPad 1 15 (Ryzen 5 5500U, 8GB, 512GB SSD)",
+      "brand": "Lenovo",
+      "category": "laptop",
+      "price_usd": 415,
+      "stock": 3,
+      "specs": { "screen_in": 15.6, "ram_gb": 8, "capacity_gb": 512, "usage": "oficina estudio" },
+      "tags": ["oficina", "estudio", "economica", "basica"],
+      "summary": "Laptop de 15.6 pulgadas para estudio, oficina y navegacion diaria."
+    },
+    {
+      "sku": "LAP-HP-15-FD",
+      "name": "HP 15-fd (Core i5-1335U, 16GB, 512GB SSD)",
+      "brand": "HP",
+      "category": "laptop",
+      "price_usd": 560,
+      "stock": 2,
+      "specs": { "screen_in": 15.6, "ram_gb": 16, "capacity_gb": 512, "usage": "oficina estudio multitarea" },
+      "tags": ["oficina", "estudio", "multitarea", "equilibrada"],
+      "summary": "Laptop con 16 GB de RAM y procesador Intel de 13.a gen para trabajo exigente."
+    },
+    {
+      "sku": "LAP-TUF-A15",
+      "name": "ASUS TUF Gaming A15 (Ryzen 7 7735HS, RTX 4050 6GB, 16GB, 512GB SSD)",
+      "brand": "ASUS",
+      "category": "laptop",
+      "price_usd": 985,
+      "stock": 2,
+      "specs": { "screen_in": 15.6, "ram_gb": 16, "capacity_gb": 512, "vram_gb": 6, "usage": "gaming edicion" },
+      "tags": ["gaming", "edicion", "premium", "rtx"],
+      "summary": "Laptop gamer con RTX 4050 para jugar y editar video con fluidez."
+    }
+  ],
+  "services": [
+    {
+      "sku": "SRV-ENSAMBLAJE",
+      "name": "Ensamblaje tecnico de PC",
+      "kind": "assembly",
+      "price_usd": 25,
+      "description": "Montaje profesional de todos los componentes y pruebas de arranque."
+    },
+    {
+      "sku": "SRV-CABLES",
+      "name": "Gestion de cables (cable management)",
+      "kind": "cable_management",
+      "price_usd": 10,
+      "description": "Ordenado y amarre de cables para mejor flujo de aire y presentacion."
+    },
+    {
+      "sku": "SRV-OS-DRIVERS",
+      "name": "Instalacion de Windows, drivers y configuracion",
+      "kind": "os_setup",
+      "price_usd": 15,
+      "description": "Instalacion del sistema operativo, controladores y configuracion inicial."
+    }
+  ]
+}

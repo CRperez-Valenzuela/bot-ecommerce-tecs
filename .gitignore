@@ -1,5 +1,8 @@
-﻿node_modules/
+node_modules/
 dist/
 .env
 *.log
 .DS_Store
+coverage/
+data/leads.mock.json
+data/leads.mock.json.tmp
