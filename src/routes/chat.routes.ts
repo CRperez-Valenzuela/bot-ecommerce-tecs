@@ -1,4 +1,4 @@
-import type { Response } from 'express';
+import type { RequestHandler, Response } from 'express';
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/errorHandler';
 import { getChatConfig, handleChat, handleReset } from './chat.handlers';
@@ -15,8 +15,14 @@ function noStore(res: Response): void {
  * Permite probar tambien las politicas de otros canales (ej. channel=mercadolibre).
  * La logica vive en chat.handlers.ts (funciones puras, sin Express) para poder probarla.
  */
-export function createChatRouter(deps: ChatDeps): Router {
+export interface ChatRouterOptions {
+  /** Se ejecuta ANTES de autenticar y de llamar a Gemini (tambien frena intentos de adivinar la clave). */
+  rateLimit?: RequestHandler;
+}
+
+export function createChatRouter(deps: ChatDeps, options: ChatRouterOptions = {}): Router {
   const router = Router();
+  const limit: RequestHandler[] = options.rateLimit ? [options.rateLimit] : [];
 
   // Publico a proposito: solo indica si hace falta clave (el simulador decide si abre el modal).
   router.get('/api/chat/config', (_req, res) => {
@@ -26,6 +32,7 @@ export function createChatRouter(deps: ChatDeps): Router {
 
   router.post(
     '/api/chat',
+    ...limit,
     asyncHandler(async (req, res) => {
       noStore(res);
       res.json(await handleChat(deps, req.header('x-api-key'), req.body as unknown));

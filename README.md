@@ -29,6 +29,33 @@ Abre **http://localhost:3000/demo/** para chatear desde el navegador: elige cana
 usa las pruebas rapidas y mira en vivo como la IA va llenando el armado de PC y calculando el montaje. Si defines
 `CHAT_API_KEY`, la pagina pide la clave en un modal y la envia en `x-api-key`. Desactivalo con `DEMO_ENABLED=false`.
 
+## Despliegue con Docker (llave en mano)
+
+Requisitos: Docker con Compose v2 y `bash`/`curl` (Linux, macOS o WSL). En el servidor de TECS:
+
+```bash
+chmod +x install.sh   # solo si el bit de ejecucion se perdio (git update-index --chmod=+x install.sh)
+./install.sh          # asistente interactivo; --yes usa los valores existentes/por defecto, --no-start solo escribe .env
+```
+
+El asistente pide la clave de Gemini, el modo (`mock` o `live` con datos de Odoo), los datos de la tienda, genera
+`CHAT_API_KEY`, escribe `.env` (permisos 600, con copia `.env.bak`), construye la imagen, levanta el contenedor y
+espera a que `/health` responda `ok`. Es idempotente: puedes volver a correrlo para cambiar valores.
+
+| Elemento | Detalle |
+| --- | --- |
+| `Dockerfile` | Multi-stage (deps, build, prod-deps, runtime). Copia `dist/`, `data/` y `public/`; corre como usuario `node` con `HEALTHCHECK` en `/health`. |
+| `docker-compose.yml` | Red propia `tecs_net`, raiz de solo lectura, `cap_drop: ALL`, `no-new-privileges`, limites de memoria/procesos, rotacion de logs de Docker. |
+| Persistencia | `./storage/leads` (leads del modo mock) y `./storage/logs` (`app-AAAA-MM-DD.log`, rotacion diaria, `LOG_RETENTION_DAYS`). |
+| Puerto | `127.0.0.1:3000` por defecto (`BIND_ADDRESS`, `HOST_PORT`). Para Meta/Mercado Libre publica detras de un proxy HTTPS (no incluido). |
+
+### Limite de tasa en `/api/chat`
+
+Ventana fija por IP para proteger el consumo de Gemini: `RATE_LIMIT_ENABLED` (true), `RATE_LIMIT_MAX` (20) y
+`RATE_LIMIT_WINDOW_SECONDS` (60). Al excederlo responde `429` con `error.code = "RATE_LIMITED"` y `Retry-After`.
+Detras de un proxy inverso define `TRUST_PROXY=1` (numero de saltos); sin eso todos los clientes comparten la IP del proxy.
+El contador vive en memoria de cada proceso. Prueba: `for i in $(seq 25); do curl -s -o /dev/null -w "%{http_code} " localhost:3000/api/chat -H "content-type: application/json" -d '{"message":"hola"}'; done`.
+
 ## Arquitectura
 
 | Capa | Ubicacion | Responsabilidad |

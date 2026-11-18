@@ -1,0 +1,68 @@
+# Bot Ecommerce TECS Acarigua - despliegue de produccion.
+# Uso recomendado: ./install.sh   (o manualmente: cp .env.example .env, editar y `docker compose up -d --build`)
+name: tecs-bot
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tecs-bot:latest
+    container_name: tecs-bot
+    restart: unless-stopped
+    init: true
+
+    # Variables del bot (GEMINI_API_KEY, ODOO_*, CHAT_API_KEY, canales...). Las de "environment" ganan sobre .env.
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      TZ: ${TZ:-America/Caracas}
+      # Datos que deben sobrevivir a reinicios y actualizaciones (volumenes de abajo).
+      MOCK_LEADS_PATH: /app/storage/leads/leads.mock.json
+      LOG_DIR: /app/storage/logs
+
+    # Se ejecuta con tu usuario para poder escribir en ./storage (install.sh define APP_UID/APP_GID).
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+
+    # Por defecto solo escucha en este equipo. Usa BIND_ADDRESS=0.0.0.0 para abrirlo a la red local
+    # o ponlo detras de un proxy inverso con HTTPS (necesario para los webhooks de Meta y Mercado Libre).
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-3000}:3000"
+
+    volumes:
+      - ./storage/leads:/app/storage/leads
+      - ./storage/logs:/app/storage/logs
+
+    networks:
+      - tecs_net
+
+    # Permite alcanzar un Odoo que corre en el mismo servidor: ODOO_URL=http://host.docker.internal:8069
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Endurecimiento: sistema de archivos de solo lectura (solo escriben los volumenes y /tmp),
+    # sin privilegios de Linux y con limites de recursos.
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 200
+
+    # Rotacion de la salida estandar (docker logs). Los archivos diarios van a ./storage/logs.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+# Red propia del bot: no comparte red con otros contenedores. No es "internal" porque el bot necesita salida a
+# internet (Gemini, Meta, Mercado Libre); lo unico que entra es el puerto publicado arriba.
+networks:
+  tecs_net:
+    name: tecs_net
+    driver: bridge

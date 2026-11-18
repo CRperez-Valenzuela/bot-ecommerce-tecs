@@ -1,0 +1,20 @@
+# Nada de esto debe entrar al contexto de build (secretos, dependencias locales, datos de ejecucion).
+.git
+.gitignore
+.gitattributes
+.env
+.env.*
+node_modules
+dist
+coverage
+storage
+tests
+*.log
+*.md
+apply-update.js
+patch-*.js
+data/leads.mock.json
+data/leads.mock.json.tmp
+Dockerfile
+docker-compose.yml
+install.sh

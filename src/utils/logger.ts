@@ -9,6 +9,11 @@ export interface Logger {
   child(bindings: LogContext): Logger;
 }
 
+/** Destino adicional de lineas ya serializadas (ej. archivo). La salida estandar siempre se mantiene. */
+export interface LogSink {
+  write(line: string): void;
+}
+
 const LEVELS: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 const SENSITIVE_KEY = /(token|secret|password|apikey|api_key|authorization)/i;
 const MAX_DEPTH = 4;
@@ -31,7 +36,7 @@ function sanitize(value: unknown, depth: number): unknown {
   return value;
 }
 
-export function createLogger(level: LogLevel, bindings: LogContext = {}): Logger {
+export function createLogger(level: LogLevel, bindings: LogContext = {}, sink?: LogSink): Logger {
   const threshold = LEVELS[level];
 
   const write = (lvl: LogLevel, message: string, context?: LogContext): void => {
@@ -44,6 +49,7 @@ export function createLogger(level: LogLevel, bindings: LogContext = {}): Logger
     });
     if (lvl === 'error' || lvl === 'warn') console.error(line);
     else console.log(line);
+    sink?.write(line);
   };
 
   return {
@@ -51,7 +57,7 @@ export function createLogger(level: LogLevel, bindings: LogContext = {}): Logger
     info: (message, context) => write('info', message, context),
     warn: (message, context) => write('warn', message, context),
     error: (message, context) => write('error', message, context),
-    child: (extra) => createLogger(level, { ...bindings, ...extra }),
+    child: (extra) => createLogger(level, { ...bindings, ...extra }, sink),
   };
 }
 

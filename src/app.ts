@@ -3,6 +3,7 @@ import type { Express } from 'express';
 import express from 'express';
 import type { Container } from './container';
 import { createErrorHandler, notFoundHandler } from './middleware/errorHandler';
+import { RateLimiter, createRateLimitMiddleware } from './middleware/rateLimit';
 import { createChatRouter } from './routes/chat.routes';
 import { createHealthRouter } from './routes/health.routes';
 import type { RawBodyRequest } from './routes/webhooks.routes';
@@ -29,6 +30,8 @@ export function createApp(container: Container, options: AppOptions = {}): Expre
   const { config, log } = container;
   const app = express();
   app.disable('x-powered-by');
+  // Solo con proxy inverso declarado se confia en X-Forwarded-For; si no, un cliente podria falsear su IP.
+  if (config.trustProxy > 0) app.set('trust proxy', config.trustProxy);
 
   // Se conserva el cuerpo crudo: la firma de Meta se calcula sobre los bytes originales.
   app.use(
@@ -65,17 +68,27 @@ export function createApp(container: Container, options: AppOptions = {}): Expre
       sessions: container.sessions,
     }),
   );
+  const chatRateLimit = config.rateLimit.enabled
+    ? createRateLimitMiddleware(
+        new RateLimiter({ max: config.rateLimit.max, windowMs: config.rateLimit.windowSeconds * 1000 }),
+        { windowSeconds: config.rateLimit.windowSeconds, log: log.child({ component: 'rate-limit' }) },
+      )
+    : undefined;
+
   app.use(
-    createChatRouter({
-      conversation: container.conversation,
-      apiKey: config.chatApiKey,
-      exposeDebug: config.nodeEnv !== 'production',
-      info: {
-        storeName: config.store.name,
-        mode: config.odooMode,
-        geminiConfigured: container.gemini.configured,
+    createChatRouter(
+      {
+        conversation: container.conversation,
+        apiKey: config.chatApiKey,
+        exposeDebug: config.nodeEnv !== 'production',
+        info: {
+          storeName: config.store.name,
+          mode: config.odooMode,
+          geminiConfigured: container.gemini.configured,
+        },
       },
-    }),
+      { rateLimit: chatRateLimit },
+    ),
   );
   app.use(
     createWebhookRouter({

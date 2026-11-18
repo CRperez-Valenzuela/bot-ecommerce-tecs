@@ -2,7 +2,9 @@ import { createApp } from './app';
 import { loadConfig, loadDotEnv } from './config/env';
 import { buildContainer } from './container';
 import { isAppError } from './utils/errors';
+import { createFileLogSink } from './utils/fileLogSink';
 import { createLogger } from './utils/logger';
+import type { LogSink } from './utils/logger';
 
 function main(): void {
   loadDotEnv();
@@ -20,7 +22,18 @@ function main(): void {
     process.exit(1);
   }
 
-  const log = createLogger(config.logLevel, { service: 'bot-ecommerce-tecs' });
+  let sink: LogSink | undefined;
+  let sinkError: unknown;
+  if (config.logging.dir !== null) {
+    try {
+      sink = createFileLogSink({ dir: config.logging.dir, retentionDays: config.logging.retentionDays });
+    } catch (error) {
+      // Sin carpeta de logs el servicio debe seguir atendiendo: queda solo la salida estandar.
+      sinkError = error;
+    }
+  }
+  const log = createLogger(config.logLevel, { service: 'bot-ecommerce-tecs' }, sink);
+  if (sinkError !== undefined) log.error('LOG_DIR no se pudo preparar: se registra solo en la salida estandar', { dir: config.logging.dir, error: sinkError });
   const container = buildContainer(config, log);
   container.sessions.startSweeper();
 
@@ -34,6 +47,8 @@ function main(): void {
       port: config.port,
       odooMode: config.odooMode,
       env: config.nodeEnv,
+      rateLimit: config.rateLimit.enabled ? `${config.rateLimit.max} por ${config.rateLimit.windowSeconds}s por IP` : 'desactivado',
+      logDir: config.logging.dir,
       ...(config.demoEnabled ? { demo: `http://localhost:${config.port}/demo/` } : {}),
     });
   });

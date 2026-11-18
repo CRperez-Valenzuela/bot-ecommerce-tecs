@@ -6,6 +6,69 @@ creados o modificados en ella.
 
 ---
 
+## Sesión 3 — Empaquetado Docker de producción y límite de tasa (2026-11-18)
+
+Se aplica con `node patch-03-docker-produccion.js` (misma mecánica que `apply-update.js`; `--dry-run` disponible).
+Requiere las sesiones 1 y 2.
+
+### Archivos
+
+**Nuevos:** `Dockerfile`, `docker-compose.yml`, `install.sh` (modo 755), `.dockerignore`, `.gitattributes`,
+`src/middleware/rateLimit.ts`, `src/utils/fileLogSink.ts`, `tests/rate-limit.test.ts`, `tests/file-logging.test.ts`,
+`tests/packaging.test.ts`, `tests/installer.test.ts`
+
+**Modificados:** `src/app.ts` (trust proxy + limitador), `src/routes/chat.routes.ts` (limitador solo en `POST /api/chat`),
+`src/config/env.ts`, `src/server.ts` (log a archivo), `src/utils/logger.ts` (sink opcional), `public/demo/index.html`
+(mensaje amable ante `RATE_LIMITED`), `.env.example`, `.gitignore` (`storage/`, `.env.bak`), `README.md`, este archivo.
+
+### Variables de entorno nuevas
+
+| Variable | Defecto | Uso |
+| --- | --- | --- |
+| `RATE_LIMIT_ENABLED` | `true` | Activa el límite por IP en `/api/chat` |
+| `RATE_LIMIT_MAX` | `20` | Peticiones por ventana (1..100000) |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Ventana en segundos (1..86400) |
+| `TRUST_PROXY` | `0` | Saltos de proxy confiables para leer `X-Forwarded-For` (0..10) |
+| `LOG_DIR` | vacío | Carpeta de logs diarios (en Docker: `/app/storage/logs`) |
+| `LOG_RETENTION_DAYS` | `14` | Días de logs que se conservan |
+| `HOST_PORT`, `BIND_ADDRESS` | `3000`, `127.0.0.1` | Solo Docker: puerto y dirección publicados |
+| `APP_UID`, `APP_GID`, `TZ` | `1000`, `1000`, `America/Caracas` | Solo Docker: dueño de `storage/` y zona horaria |
+
+### Decisiones de diseño
+
+- **Imagen**: 4 etapas; solo dependencias de producción, sin tests ni `.env`; usuario no-root; `HEALTHCHECK` a `/health`.
+- **Red**: `tecs_net` propia (no `internal`, porque Gemini, Meta y Mercado Libre requieren salida). Aislamiento por
+  raíz de solo lectura, `cap_drop: ALL`, `no-new-privileges`, `tmpfs /tmp` (`mode=1777,noexec,nosuid`), límites de memoria/procesos.
+- **Persistencia**: bind mounts `./storage/leads` y `./storage/logs`; el instalador los crea con el UID correcto.
+- **Límite de tasa**: ventana fija en memoria; IPv6 agrupado por /64; responde `429 RATE_LIMITED` con `Retry-After` y
+  `RateLimit-*`. Se evalúa antes de autenticar. `/reset`, `/config` y webhooks no se limitan.
+- **Logs**: si la carpeta no se puede crear, el servidor sigue solo con stdout; un fallo de escritura nunca tumba la app.
+- **`.env`**: el instalador escribe `CLAVE='valor'` para que ni Compose ni Node interpolen `$`.
+
+### Verificación realizada
+
+- `tsc` estricto sin errores; suite completa de pruebas en verde (incluye pruebas nuevas de límite, logs, empaquetado e instalador).
+- Pruebas de mutación sobre el limitador y la retención de logs: todas detectadas.
+- `docker compose config` y `docker build --check` sin avisos; el Dockerfile real construyó contra una imagen base local.
+- Contenedor con las banderas de Compose y UID arbitrario: `/app` y `/etc` de solo lectura, `storage` y `/tmp` escribibles.
+- Instalador probado con `docker` simulado (interactivo, `--yes`, modo live, canales, validaciones, fallos).
+- El parche se verificó sobre copia limpia: simulación, aplicación, segunda corrida idempotente y contenido idéntico.
+
+### Lo que NO se pudo verificar
+
+- `npm ci` real dentro del build ni la descarga de `node:22-alpine` (sin acceso a Docker Hub aquí).
+- Comportamiento con Express real detrás de un proxy, ni llamadas reales a Gemini.
+
+### Notas y pendientes
+
+- El limitador es por proceso: con varias réplicas, cada una cuenta aparte. Con Docker Desktop o proxy sin `TRUST_PROXY`
+  todos comparten una IP.
+- Falta el proxy HTTPS (Caddy/nginx) para exponer los webhooks de Meta y Mercado Libre.
+- Si el bit de ejecución se pierde al clonar: `git update-index --chmod=+x install.sh`.
+- Primera prueba del 429: ver el bucle `curl` en el README.
+
+---
+
 ## Sesión 2 — Simulador web de chat para demostración (2026-11-17)
 
 Página de demostración en `http://localhost:3000/demo/` (HTML + CSS + JS vanilla en un solo archivo, sin frameworks

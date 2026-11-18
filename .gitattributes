@@ -1,0 +1,8 @@
+# Los scripts y archivos de contenedor deben conservar fin de linea LF aunque se editen en Windows;
+# con CRLF, bash y Docker fallan con errores como "bad interpreter" o "unexpected end of file".
+* text=auto
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+docker-compose.yml text eol=lf
+.env.example text eol=lf

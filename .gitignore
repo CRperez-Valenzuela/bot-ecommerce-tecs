@@ -6,3 +6,5 @@ dist/
 coverage/
 data/leads.mock.json
 data/leads.mock.json.tmp
+storage/
+.env.bak

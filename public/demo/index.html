@@ -721,6 +721,10 @@
     var text = err.message;
     if (err.code === 'LLM_NOT_CONFIGURED') text = 'El servidor no tiene configurada la clave de Gemini (GEMINI_API_KEY).';
     if (err.code === 'UNAUTHORIZED') text = 'La clave de acceso es inválida o falta.';
+    if (err.code === 'RATE_LIMITED') {
+      var wait = err.details && err.details.retryAfterSeconds;
+      text = 'Demasiados mensajes en poco tiempo.' + (wait ? ' Intenta de nuevo en ' + wait + ' s.' : '');
+    }
     var bubble = h('div', { class: 'bubble error' },
       h('strong', { text: title + ' (' + err.code + ')' }), '\n' + text);
     var meta = h('div', { class: 'meta' });

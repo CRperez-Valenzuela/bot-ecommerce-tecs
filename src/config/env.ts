@@ -27,6 +27,12 @@ export interface AppConfig {
   chatApiKey: string | null;
   /** Sirve el simulador web en /demo (carpeta public/demo). */
   demoEnabled: boolean;
+  /** Limite de solicitudes por IP en POST /api/chat (protege el consumo de Gemini). */
+  rateLimit: { enabled: boolean; max: number; windowSeconds: number };
+  /** Saltos de proxy inverso de confianza (0 = ninguno). Solo asi se usa X-Forwarded-For para la IP real. */
+  trustProxy: number;
+  /** Si logging.dir no es null, ademas de la salida estandar se escribe app-AAAA-MM-DD.log en esa carpeta. */
+  logging: { dir: string | null; retentionDays: number };
   odooMode: OdooMode;
   mock: { catalogPath: string; leadsPath: string };
   /** Solo presente cuando ODOO_MODE=live. */
@@ -176,6 +182,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     logLevel,
     chatApiKey: r.str('CHAT_API_KEY') || null,
     demoEnabled: r.bool('DEMO_ENABLED', true),
+    rateLimit: {
+      enabled: r.bool('RATE_LIMIT_ENABLED', true),
+      max: r.int('RATE_LIMIT_MAX', 20, 1, 100000),
+      windowSeconds: r.int('RATE_LIMIT_WINDOW_SECONDS', 60, 1, 86400),
+    },
+    trustProxy: r.int('TRUST_PROXY', 0, 0, 10),
+    logging: {
+      dir: r.str('LOG_DIR') || null,
+      retentionDays: r.int('LOG_RETENTION_DAYS', 14, 1, 3650),
+    },
     odooMode,
     mock: {
       catalogPath: r.str('MOCK_CATALOG_PATH', './data/catalog.mock.json'),
