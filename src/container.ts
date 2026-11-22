@@ -58,7 +58,14 @@ export function buildContainer(config: AppConfig, log: Logger, overrides: Contai
     overrides.llm !== undefined
       ? overrides.llm
       : config.gemini.apiKey !== null
-        ? new GoogleGenAiClient({ apiKey: config.gemini.apiKey, model: config.gemini.model })
+        ? new GoogleGenAiClient({
+            apiKey: config.gemini.apiKey,
+            model: config.gemini.model,
+            maxRetries: config.gemini.maxRetries,
+            retryBaseMs: config.gemini.retryBaseMs,
+            fallbackModel: config.gemini.fallbackModel,
+            log: log.child({ component: 'gemini-client' }),
+          })
         : null;
   if (llm === null) {
     log.warn('GEMINI_API_KEY no configurada: el asistente respondera LLM_NOT_CONFIGURED', {

@@ -43,6 +43,11 @@ export interface AppConfig {
     /** Aviso si la clave parece mal copiada; null si todo bien. */
     keyWarning: string | null;
     model: string;
+    /** Reintentos ante alta demanda (429/5xx) y espera base en ms (retroceso exponencial). */
+    maxRetries: number;
+    retryBaseMs: number;
+    /** Modelo alternativo ante fallos de servidor persistentes; null = ninguno. */
+    fallbackModel: string | null;
     temperature: number;
     maxToolRounds: number;
   };
@@ -74,6 +79,9 @@ export const DEFAULT_CATEGORY_MAP: Record<OdooCategoryKey, string> = {
   laptop: 'Laptops',
   service: 'Servicios',
 };
+
+/** Modelo por defecto. Google retira modelos con el tiempo (p. ej. gemini-2.5-flash ya no esta disponible para cuentas nuevas). */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
 
 export { loadDotEnv } from './dotenv';
 export type { DotEnvReport } from './dotenv';
@@ -239,7 +247,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       apiKey: geminiKey.key,
       keySource: geminiKey.source,
       keyWarning: geminiKey.warning,
-      model: r.str('GEMINI_MODEL', 'gemini-flash-latest'),
+      model: r.str('GEMINI_MODEL', DEFAULT_GEMINI_MODEL),
+      maxRetries: r.int('GEMINI_MAX_RETRIES', 3, 0, 6),
+      retryBaseMs: r.int('GEMINI_RETRY_BASE_MS', 1000, 0, 30000),
+      fallbackModel: r.str('GEMINI_FALLBACK_MODEL') || null,
       temperature: r.float('GEMINI_TEMPERATURE', 0.4, 0, 2),
       maxToolRounds: r.int('GEMINI_MAX_TOOL_ROUNDS', 6, 1, 12),
     },

@@ -171,7 +171,8 @@ describe('.env.example documenta todo lo que se usa', () => {
     const written = [...installer.matchAll(/env_set ([A-Z][A-Z0-9_]+)/g)].map((m) => m[1] as string);
     assert.ok(written.length > 20);
     const composeVars = [...compose.matchAll(/\$\{([A-Z][A-Z0-9_]+)[:}-]/g)].map((m) => m[1] as string);
-    assert.deepEqual([...new Set([...written, ...composeVars])].filter((key) => !documentedKeys.has(key)), []);
+    const undocumented = [...new Set([...written, ...composeVars])].filter((key) => !documentedKeys.has(key));
+    assert.deepEqual(undocumented, [], `faltan en .env.example (una linea "CLAVE=" por variable): ${undocumented.join(', ')}`);
   });
 
   it('con la plantilla tal cual, la configuracion carga sin errores', () => {

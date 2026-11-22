@@ -6,6 +6,80 @@ creados o modificados en ella.
 
 ---
 
+## Sesión 6 (corrección) — Alta demanda de Gemini (503): reintentos y modelo de respaldo (2026-11-21)
+
+Se aplica con `node patch-06-reintentos-gemini.js` (sobre los parches anteriores).
+
+**Síntoma (log del usuario):** tras corregir el modelo, la primera consulta fallaba con `503 UNAVAILABLE: This model is currently
+experiencing high demand`. No es un error de clave ni de configuración: es saturación temporal del servicio de Google. El código solo
+reintentaba **una vez** a los 800 ms, poco para una saturación que dura segundos.
+
+**Cambios:** `src/ai/GoogleGenAiClient.ts`, `src/config/env.ts`, `src/container.ts`, `src/utils/errors.ts`, `.env.example`, `README.md`,
+`tests/dotenv-and-gemini-key.test.ts` (+8 pruebas), este archivo.
+
+1. **Reintentos con retroceso exponencial** ante 429/500/502/503/504: 1 s, 2 s, 4 s (tope 8 s) más hasta 50 % de azar; por defecto 3 reintentos
+   (peor caso ≈ 7–9 s extra, por debajo del tiempo de espera de 120 s del simulador). Cada reintento se registra como `warn`.
+2. **Modelo de respaldo opcional** (`GEMINI_FALLBACK_MODEL`, vacío por defecto): si el principal sigue con error de servidor tras los reintentos,
+   se prueba el de respaldo. No se usa con 429, 401/403, 404 ni 400 (cambiar de modelo no los arregla). No hay valor por defecto porque no
+   pude verificar qué modelo ofrece tu cuenta.
+3. **Error nuevo `LLM_UNAVAILABLE`** (HTTP 503, mensaje amable, `details`: `status`, `model`, `attempts`, `cause`) cuando se agotan los intentos;
+   antes era un `LLM_ERROR` 502 genérico. El 429 sigue siendo `RATE_LIMITED`.
+
+### Variables de entorno nuevas
+
+| Variable | Defecto | Uso |
+| --- | --- | --- |
+| `GEMINI_MAX_RETRIES` | `3` | Reintentos ante alta demanda (0..6; 0 = sin reintentos) |
+| `GEMINI_RETRY_BASE_MS` | `1000` | Espera base en ms del retroceso exponencial (0..30000) |
+| `GEMINI_FALLBACK_MODEL` | vacío | Modelo alternativo ante fallos de servidor persistentes |
+
+**Verificado:** `tsc` sin errores; 213 de 213 pruebas (guion de fallos 503/429, esperas exactas, tope, intentos, respaldo, configuración);
+mutación: 4 regresiones, 4 detectadas. **No verificado:** el comportamiento real de Google bajo carga; si el 503 persiste minutos, ningún
+reintento lo resuelve (conviene un `GEMINI_FALLBACK_MODEL` vigente de tu cuenta, o reintentar más tarde).
+
+---
+
+## Sesión 5 (corrección) — Modelo de Gemini retirado (404) (2026-11-21)
+
+Se aplica con `node patch-05-modelo-gemini.js` (sobre los parches anteriores).
+
+**Causa del `LLM_ERROR`** (ahora visible gracias al patch-04): Google respondió `404 NOT_FOUND` — `models/gemini-2.5-flash` ya no está
+disponible para cuentas nuevas y recomienda `gemini-3.8-flash`. La clave `AQ.` funciona; el modelo del `.env` era el problema.
+
+**Cambios:** `src/config/env.ts` (`DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash'`), `src/ai/GoogleGenAiClient.ts` y `src/utils/errors.ts`
+(un 404 ahora es `LLM_MODEL_ERROR`, 502, con el modelo y la pista de qué cambiar), `.env.example` (`GEMINI_MODEL=gemini-3.8-flash` y
+nota), `tests/dotenv-and-gemini-key.test.ts` (+1), `tests/packaging.test.ts` (el mensaje de fallo ahora nombra las variables que faltan en
+`.env.example`), `README.md`. Sin variables nuevas. **Acción del usuario:** el `GEMINI_MODEL` de su `.env` manda sobre el
+valor por defecto: debe cambiarlo a `gemini-3.8-flash` (o quitar la línea) y reiniciar.
+
+**Prueba fallida reportada** (`packaging.test.ts`: "GEMINI_API_KEY" sin documentar en `.env.example`): la prueba exige una línea
+`GEMINI_API_KEY=` en `.env.example` porque `install.sh` la escribe. Con los archivos entregados pasa (205/205 aquí; también con CRLF/BOM),
+así que el `.env.example` local no tiene esa línea al inicio de renglón (editado a mano, sin aplicar el parche o con la clave en otro formato).
+**No pude reproducirlo ni confirmar la causa.** Comprobar: `findstr /B "GEMINI_API_KEY" .env.example`.
+
+**Verificado:** `tsc` sin errores, 205 de 205 pruebas. **No verificado:** que `gemini-3.8-flash` funcione con la clave del usuario
+(nombre tomado del mensaje de error de Google) ni con Function Calling real.
+
+---
+
+## Sesión 4 (corrección) — Ver la causa real de `LLM_ERROR` en los logs (2026-11-21)
+
+Se aplica con `node patch-04-log-errores-llm.js` (sobre los dos parches de la sesión 3).
+
+**Síntoma:** con la clave ya detectada (`Gemini configurado`, `keyPrefix: "AQ."`), el log mostraba solo `LLM_ERROR: Fallo la consulta al
+modelo de IA`. **Causa de ese silencio:** el logger serializaba los errores únicamente con `name`, `message` y `stack`, y descartaba
+`code` y `details`, que es donde `GoogleGenAiClient` guarda el estado HTTP y el mensaje que devolvió Google. No es un fallo de la clave:
+un 401/403 saldría como `LLM_AUTH_ERROR`, así que el rechazo fue de otro tipo (modelo, petición o red).
+
+**Cambios:** `src/utils/logger.ts` (los errores ahora incluyen `code`, `details` y `cause`, con las claves sensibles aún en `[REDACTED]`),
+`src/ai/GoogleGenAiClient.ts` (la causa guardada sube de 300 a 800 caracteres), `tests/error-logging.test.ts` (2 pruebas),
+este archivo. Sin variables nuevas. `tsc` sin errores y 204 de 204 pruebas.
+
+**No verificado:** la causa concreta del `LLM_ERROR` del usuario; sin acceso a su clave ni a Google no se puede determinar desde aquí.
+Siguiente paso: reiniciar, repetir el mensaje y leer `error.details.status` y `error.details.cause` en el log.
+
+---
+
 ## Sesión 3 (corrección) — Clave de Gemini y carga de `.env` en Windows (2026-11-18)
 
 Se aplica con `node patch-03-fix-gemini-env.js` (requiere el `patch-03-docker-produccion.js` ya aplicado).

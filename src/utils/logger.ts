@@ -20,7 +20,16 @@ const MAX_DEPTH = 4;
 
 function sanitize(value: unknown, depth: number): unknown {
   if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
+    const extra = value as Error & { code?: unknown; details?: unknown };
+    return {
+      name: value.name,
+      message: value.message,
+      // Errores de dominio (AppError): codigo y detalles (p. ej. estado HTTP y causa del fallo de Gemini).
+      ...(extra.code !== undefined ? { code: sanitize(extra.code, depth + 1) } : {}),
+      ...(extra.details !== undefined && extra.details !== null ? { details: sanitize(extra.details, depth + 1) } : {}),
+      ...(value.cause !== undefined && depth < MAX_DEPTH ? { cause: sanitize(value.cause, depth + 1) } : {}),
+      stack: value.stack,
+    };
   }
   if (Array.isArray(value)) {
     return depth >= MAX_DEPTH ? '[...]' : value.map((item) => sanitize(item, depth + 1));
