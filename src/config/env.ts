@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import type { OdooMode, ProductCategory } from '../types/domain';
 import { PRODUCT_CATEGORIES } from '../types/domain';
 import type { LogLevel } from '../utils/logger';
@@ -37,7 +36,16 @@ export interface AppConfig {
   mock: { catalogPath: string; leadsPath: string };
   /** Solo presente cuando ODOO_MODE=live. */
   odoo: OdooConfig | null;
-  gemini: { apiKey: string | null; model: string; temperature: number; maxToolRounds: number };
+  gemini: {
+    apiKey: string | null;
+    /** Variable de la que se leyo la clave (GEMINI_API_KEY, o GOOGLE_API_KEY como alternativa). */
+    keySource: GeminiKeyResolution['source'];
+    /** Aviso si la clave parece mal copiada; null si todo bien. */
+    keyWarning: string | null;
+    model: string;
+    temperature: number;
+    maxToolRounds: number;
+  };
   session: { ttlMinutes: number; maxSessions: number; maxHistoryTurns: number };
   store: { name: string; city: string; address: string; hours: string; deliveryEta: string };
   channels: {
@@ -67,11 +75,39 @@ export const DEFAULT_CATEGORY_MAP: Record<OdooCategoryKey, string> = {
   service: 'Servicios',
 };
 
-/** Carga .env (si existe) sin dependencias externas. Requiere Node >= 20.12. */
-export function loadDotEnv(path = '.env'): void {
-  if (typeof process.loadEnvFile === 'function' && fs.existsSync(path)) {
-    process.loadEnvFile(path);
+export { loadDotEnv } from './dotenv';
+export type { DotEnvReport } from './dotenv';
+
+export interface GeminiKeyResolution {
+  /** Clave lista para el SDK (null si no hay). Sin comillas, espacios ni caracteres invisibles. */
+  key: string | null;
+  /** Variable de la que salio la clave. */
+  source: 'GEMINI_API_KEY' | 'GOOGLE_API_KEY' | null;
+  /** Aviso legible si la clave parece mal copiada (nunca incluye la clave). */
+  warning: string | null;
+}
+
+/**
+ * Normaliza la clave de Gemini. NO valida prefijo ni longitud a proposito: Google emite claves "AIza..." (estandar,
+ * en retiro) y "AQ.Ab..." (de autorizacion) y el formato puede volver a cambiar. Solo limpia lo que rompe la copia:
+ * comillas, espacios y caracteres invisibles (BOM, espacio de ancho cero).
+ */
+export function resolveGeminiKey(env: NodeJS.ProcessEnv): GeminiKeyResolution {
+  const clean = (raw: string | undefined): string => {
+    let value = (raw ?? '').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').trim();
+    if (value.length >= 2 && /^["'`]/.test(value) && value.endsWith(value[0] ?? '')) value = value.slice(1, -1).trim();
+    return value;
+  };
+  const candidates = ['GEMINI_API_KEY', 'GOOGLE_API_KEY'] as const;
+  for (const name of candidates) {
+    const key = clean(env[name]);
+    if (key === '') continue;
+    let warning: string | null = null;
+    if (/\s/.test(key)) warning = `${name} contiene espacios o saltos de linea: probablemente se copio mal`;
+    else if (/^(tu_|your_|xxx|changeme|<)/i.test(key)) warning = `${name} parece un valor de ejemplo y no una clave real`;
+    return { key, source: name, warning };
   }
+  return { key: null, source: null, warning: null };
 }
 
 class EnvReader {
@@ -151,6 +187,7 @@ function parseCategoryMap(raw: string, errors: string[]): Record<OdooCategoryKey
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const r = new EnvReader(env);
+  const geminiKey = resolveGeminiKey(env);
 
   const modeRaw = r.str('ODOO_MODE', 'mock').toLowerCase();
   if (modeRaw !== 'mock' && modeRaw !== 'live') r.errors.push('ODOO_MODE debe ser "mock" o "live"');
@@ -199,7 +236,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     odoo,
     gemini: {
-      apiKey: r.str('GEMINI_API_KEY') || null,
+      apiKey: geminiKey.key,
+      keySource: geminiKey.source,
+      keyWarning: geminiKey.warning,
       model: r.str('GEMINI_MODEL', 'gemini-flash-latest'),
       temperature: r.float('GEMINI_TEMPERATURE', 0.4, 0, 2),
       maxToolRounds: r.int('GEMINI_MAX_TOOL_ROUNDS', 6, 1, 12),

@@ -29,6 +29,18 @@ Abre **http://localhost:3000/demo/** para chatear desde el navegador: elige cana
 usa las pruebas rapidas y mira en vivo como la IA va llenando el armado de PC y calculando el montaje. Si defines
 `CHAT_API_KEY`, la pagina pide la clave en un modal y la envia en `x-api-key`. Desactivalo con `DEMO_ENABLED=false`.
 
+### Si el servidor dice "GEMINI_API_KEY no configurada"
+
+1. Al arrancar, el log indica si cargo un `.env` (`Archivo .env cargado`, con su ruta) o dónde lo buscó. El `.env` debe estar en la
+   raíz del proyecto (junto a `package.json`), con una línea `GEMINI_API_KEY=AQ.Ab...` (sin comillas ni espacios).
+2. Con la clave detectada verás `Gemini configurado` con su origen, longitud y los 3 primeros caracteres (nunca la clave completa).
+3. Las variables del entorno (p. ej. `$env:GEMINI_API_KEY="..."` en PowerShell) tienen prioridad sobre `.env`, pero solo valen para esa
+   ventana de PowerShell: arranca `npm run dev` en la misma ventana. Si la variable existe pero está vacía, se usa la del `.env`.
+4. Se aceptan claves `AQ.Ab...` y `AIza...`; no se valida el formato. Si Google la rechaza (401/403) la respuesta es `LLM_AUTH_ERROR`:
+   copia la clave completa y confirma que su proyecto tiene habilitada la API de Gemini.
+5. Tras editar `.env`, reinicia `npm run dev` (el modo watch no vigila archivos que empiezan con punto).
+6. Evita crear el `.env` con `echo ... > .env` de PowerShell (genera UTF-16); el cargador lo tolera y avisa, pero guárdalo como UTF-8.
+
 ## Despliegue con Docker (llave en mano)
 
 Requisitos: Docker con Compose v2 y `bash`/`curl` (Linux, macOS o WSL). En el servidor de TECS:

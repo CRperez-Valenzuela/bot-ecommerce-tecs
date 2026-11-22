@@ -60,7 +60,20 @@ export function buildContainer(config: AppConfig, log: Logger, overrides: Contai
       : config.gemini.apiKey !== null
         ? new GoogleGenAiClient({ apiKey: config.gemini.apiKey, model: config.gemini.model })
         : null;
-  if (llm === null) log.warn('GEMINI_API_KEY no configurada: el asistente respondera LLM_NOT_CONFIGURED');
+  if (llm === null) {
+    log.warn('GEMINI_API_KEY no configurada: el asistente respondera LLM_NOT_CONFIGURED', {
+      hint: 'Defínela en el archivo .env (junto a package.json) o en el entorno, y reinicia el servidor',
+    });
+  } else if (overrides.llm === undefined && config.gemini.apiKey !== null) {
+    // Solo longitud y 3 primeros caracteres (AQ. / AIz): sirve para diagnosticar sin exponer la clave.
+    log.info('Gemini configurado', {
+      source: config.gemini.keySource,
+      keyLength: config.gemini.apiKey.length,
+      keyPrefix: config.gemini.apiKey.slice(0, 3),
+      model: config.gemini.model,
+    });
+    if (config.gemini.keyWarning !== null) log.warn(config.gemini.keyWarning);
+  }
 
   const gemini = new GeminiService({
     llm,

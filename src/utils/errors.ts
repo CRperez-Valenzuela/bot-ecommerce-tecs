@@ -10,6 +10,7 @@ export type ErrorCode =
   | 'CONFIG_ERROR'
   | 'LLM_NOT_CONFIGURED'
   | 'LLM_ERROR'
+  | 'LLM_AUTH_ERROR'
   | 'REPOSITORY_ERROR'
   | 'ODOO_UNREACHABLE'
   | 'ODOO_AUTH_FAILED'

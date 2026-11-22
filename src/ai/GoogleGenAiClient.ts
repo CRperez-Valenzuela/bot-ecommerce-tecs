@@ -4,9 +4,16 @@ import type { LlmClient, LlmGenerateRequest, LlmMessage, LlmPart, ToolDeclaratio
 import { AppError } from '../utils/errors';
 import { truncate } from '../utils/text';
 
+/** Parte del SDK que se usa; permite inyectar un doble en las pruebas. */
+export interface GenAiLike {
+  models: { generateContent(params: Parameters<GoogleGenAI['models']['generateContent']>[0]): Promise<GenerateContentResponse> };
+}
+
 export interface GoogleGenAiOptions {
   apiKey: string;
   model: string;
+  /** Solo para pruebas: sustituye al SDK real. */
+  sdk?: GenAiLike;
 }
 
 const TYPE_MAP: Record<ToolParamSchema['type'], Type> = {
@@ -83,10 +90,12 @@ const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
 /** Adaptador de LlmClient sobre el SDK oficial @google/genai (Gemini API). */
 export class GoogleGenAiClient implements LlmClient {
-  private readonly ai: GoogleGenAI;
+  private readonly ai: GenAiLike;
 
   constructor(private readonly options: GoogleGenAiOptions) {
-    this.ai = new GoogleGenAI({ apiKey: options.apiKey });
+    // Claves "AIza..." y "AQ.Ab..." (autorizacion) viajan igual: encabezado x-goog-api-key contra la API de Gemini.
+    // vertexai:false evita que variables como GOOGLE_GENAI_USE_VERTEXAI desvien la llamada a otro servicio.
+    this.ai = options.sdk ?? new GoogleGenAI({ apiKey: options.apiKey, vertexai: false });
   }
 
   async generate(request: LlmGenerateRequest): Promise<LlmMessage> {
@@ -122,6 +131,13 @@ export class GoogleGenAiClient implements LlmClient {
       const status = statusOf(error);
       if (status === 429) {
         throw new AppError('RATE_LIMITED', 'El servicio de IA esta saturado; intenta de nuevo en un momento', 429);
+      }
+      if (status === 401 || status === 403) {
+        throw new AppError('LLM_AUTH_ERROR', 'Google rechazo la clave de Gemini; revisa GEMINI_API_KEY', 502, {
+          status,
+          hint: 'Copia la clave completa de Google AI Studio (AQ.Ab... o AIza...), sin comillas ni espacios, y verifica que su proyecto tenga habilitada la API de Gemini (Generative Language API).',
+          cause: truncate(error instanceof Error ? error.message : String(error), 300),
+        });
       }
       throw new AppError('LLM_ERROR', 'Fallo la consulta al modelo de IA', 502, {
         status: status ?? null,

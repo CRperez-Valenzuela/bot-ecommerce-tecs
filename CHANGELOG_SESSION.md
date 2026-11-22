@@ -6,6 +6,65 @@ creados o modificados en ella.
 
 ---
 
+## Sesión 3 (corrección) — Clave de Gemini y carga de `.env` en Windows (2026-11-18)
+
+Se aplica con `node patch-03-fix-gemini-env.js` (requiere el `patch-03-docker-produccion.js` ya aplicado).
+
+### Diagnóstico
+
+- **No existe validación de prefijo ni longitud de la clave** en `env.ts`, `container.ts`, `GeminiService.ts` ni `GoogleGenAiClient.ts`:
+  `AQ.Ab...` no se rechazaba por su formato. El aviso sale cuando `config.gemini.apiKey` llega `null`, o sea, cuando el proceso no ve
+  la variable al cargar la configuración (`GeminiService.ts:52` solo lanza `LLM_NOT_CONFIGURED`).
+- **Causa reproducida: `.env` guardado con BOM UTF-8 o en UTF-16** (Bloc de notas, PowerShell 5.1 con `-Encoding utf8`, `echo ... > .env`).
+  `process.loadEnvFile` dejaba la primera variable con el nombre `"\uFEFFGEMINI_API_KEY"` (BOM UTF-8) o no leía nada (UTF-16), **sin avisar**.
+- **No reproducible aquí:** una variable puesta con `$env:GEMINI_API_KEY` en PowerShell sí llega al proceso (Node la prioriza sobre `.env`).
+  Si aun así falla, lo más probable es que el servidor se arrancara en otra ventana/terminal (la variable `$env:` solo vive en esa
+  ventana) o que quedara un proceso viejo en el puerto. El nuevo log de arranque lo aclara (ver abajo).
+- Orden de carga correcto: `loadDotEnv()` ya corría antes de `loadConfig()`; `npm run dev` y `npm start` pasan ambos por `server.ts`.
+
+### Cambios
+
+**Nuevos:** `src/config/dotenv.ts` (cargador propio sin dependencias), `tests/dotenv-and-gemini-key.test.ts` (19 pruebas)
+
+**Modificados:** `src/config/env.ts`, `src/container.ts`, `src/server.ts`, `src/ai/GoogleGenAiClient.ts`, `src/utils/errors.ts`,
+`.env.example`, `README.md` (sección de diagnóstico), este archivo.
+
+1. **Cargador de `.env` propio** (`dotenv.ts`): detecta UTF-8, UTF-8 con BOM, UTF-16 LE/BE (con y sin BOM), CRLF, comillas simples/dobles,
+   `export`, comentarios; `$` es literal. Busca `.env` en la carpeta de trabajo y luego en la raíz del proyecto, así que funciona aunque
+   `npm run dev` se lance desde otra carpeta. Prioridad: variable de entorno **con valor** > `.env`; una variable definida pero **vacía** se
+   rellena desde `.env`. Nunca lanza excepciones ni registra valores.
+2. **Clave de Gemini** (`resolveGeminiKey`): limpia comillas, espacios y caracteres invisibles; **no valida prefijo ni longitud**
+   (acepta `AQ.Ab...`, `AIza...` y formatos futuros); acepta `GOOGLE_API_KEY` como alternativa si `GEMINI_API_KEY` está vacía; avisa si
+   la clave tiene espacios internos o parece un ejemplo.
+3. **Diagnóstico al arrancar** (sin exponer la clave): `Archivo .env cargado` (ruta, codificación, nº de variables) o `No hay archivo .env`
+   (rutas buscadas); `Gemini configurado` (origen, longitud, 3 primeros caracteres); avisos si el `.env` tenía problemas.
+4. **`GoogleGenAiClient`**: `new GoogleGenAI({ apiKey, vertexai: false })` para que variables como `GOOGLE_GENAI_USE_VERTEXAI` no desvíen
+   la llamada; un 401/403 de Google ahora es `LLM_AUTH_ERROR` (502) con pista, sin reintento; antes era un `LLM_ERROR` genérico.
+   Se añadió la opción `sdk` (solo pruebas).
+
+### Variables de entorno
+
+Sin variables obligatorias nuevas. `GOOGLE_API_KEY` se reconoce como alternativa opcional a `GEMINI_API_KEY`.
+
+### Verificación realizada
+
+- `tsc` estricto sin errores; **202 de 202** pruebas (19 nuevas): BOM, UTF-16, CRLF, comillas, precedencia entorno/`.env`, búsqueda
+  de rutas, claves `AQ.`/`AIza`, flujo `.env` → `loadConfig`, 401/403 → `LLM_AUTH_ERROR`, informes sin valores.
+- Mutación: 6 regresiones introducidas; 5 detectadas y 1 equivalente (el BOM se quita dos veces, es defensa redundante).
+
+### Lo que NO se pudo verificar
+
+- **Con una clave real contra Google:** aquí no hay red hacia la API ni `@google/genai` real (solo tipos de apoyo). Según la documentación y
+  reportes de Google, las claves `AQ.` funcionan con el endpoint nativo de Gemini vía `x-goog-api-key` (lo que usa el SDK) y fallan con
+  `Authorization: Bearer`; también hay reportes de 401 `ACCESS_TOKEN_TYPE_UNSUPPORTED` por clave truncada o proyecto sin la API habilitada.
+- **Tu PowerShell:** no pude reproducir el fallo con `$env:`; si persiste tras el parche, copia las 3 líneas del log (`Archivo .env…`,
+  `Gemini configurado`/aviso) para ubicarlo.
+- **`tsx watch --include .env`:** probé reiniciar el modo watch al cambiar `.env`, pero no lo hace (ignora archivos con punto), así que
+  **no se incluyó**: tras editar `.env`, reinicia `npm run dev`.
+- Si ves `LLM_AUTH_ERROR`, considera actualizar `@google/genai` (`npm i @google/genai@latest`); no lo toqué por no poder probarlo aquí.
+
+---
+
 ## Sesión 3 — Empaquetado Docker de producción y límite de tasa (2026-11-18)
 
 Se aplica con `node patch-03-docker-produccion.js` (misma mecánica que `apply-update.js`; `--dry-run` disponible).

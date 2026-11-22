@@ -7,7 +7,7 @@ import { createLogger } from './utils/logger';
 import type { LogSink } from './utils/logger';
 
 function main(): void {
-  loadDotEnv();
+  const envReport = loadDotEnv();
 
   let config;
   try {
@@ -34,6 +34,20 @@ function main(): void {
   }
   const log = createLogger(config.logLevel, { service: 'bot-ecommerce-tecs' }, sink);
   if (sinkError !== undefined) log.error('LOG_DIR no se pudo preparar: se registra solo en la salida estandar', { dir: config.logging.dir, error: sinkError });
+  if (envReport.path !== null) {
+    log.info('Archivo .env cargado', {
+      path: envReport.path,
+      encoding: envReport.encoding,
+      variables: envReport.appliedKeys.length,
+      geminiKeyFrom: envReport.appliedKeys.includes('GEMINI_API_KEY') ? '.env' : 'entorno',
+    });
+    for (const warning of envReport.warnings) log.warn(`.env: ${warning}`);
+    if (envReport.keptFromEnvironment.length > 0) {
+      log.info('Variables del entorno que tienen prioridad sobre .env', { variables: envReport.keptFromEnvironment });
+    }
+  } else {
+    log.info('No hay archivo .env: se usan solo las variables del entorno', { buscado: envReport.searched });
+  }
   const container = buildContainer(config, log);
   container.sessions.startSweeper();
 
