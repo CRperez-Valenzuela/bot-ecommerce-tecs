@@ -28,6 +28,12 @@ export interface AppConfig {
   demoEnabled: boolean;
   /** Limite de solicitudes por IP en POST /api/chat (protege el consumo de Gemini). */
   rateLimit: { enabled: boolean; max: number; windowSeconds: number };
+  /** Mensajes entrantes por webhook: agrupar rafagas y limite por cliente (el limite usa RATE_LIMIT_ENABLED). */
+  messaging: {
+    debounceMs: number;
+    debounceMaxWaitMs: number;
+    userRate: { enabled: boolean; max: number; windowSeconds: number };
+  };
   /** Saltos de proxy inverso de confianza (0 = ninguno). Solo asi se usa X-Forwarded-For para la IP real. */
   trustProxy: number;
   /** Si logging.dir no es null, ademas de la salida estandar se escribe app-AAAA-MM-DD.log en esa carpeta. */
@@ -52,6 +58,10 @@ export interface AppConfig {
     requestTimeoutMs: number;
     /** Espera maxima (ms) ante un 429 de cuota por minuto en el ultimo modelo; si Google pide mas, se devuelve LLM_QUOTA. */
     quotaMaxWaitMs: number;
+    /** Ritmo hacia Gemini: llamadas por minuto (0 = sin limite), simultaneas (0 = sin limite) y espera maxima en cola (ms). */
+    maxRequestsPerMinute: number;
+    maxConcurrent: number;
+    queueMaxWaitMs: number;
     temperature: number;
     maxToolRounds: number;
   };
@@ -236,6 +246,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       max: r.int('RATE_LIMIT_MAX', 20, 1, 100000),
       windowSeconds: r.int('RATE_LIMIT_WINDOW_SECONDS', 60, 1, 86400),
     },
+    messaging: {
+      debounceMs: r.int('MESSAGE_DEBOUNCE_MS', 2500, 0, 15000),
+      debounceMaxWaitMs: r.int('MESSAGE_DEBOUNCE_MAX_WAIT_MS', 8000, 1000, 60000),
+      userRate: {
+        enabled: r.bool('RATE_LIMIT_ENABLED', true),
+        max: r.int('WEBHOOK_USER_RATE_MAX', 10, 1, 1000),
+        windowSeconds: r.int('WEBHOOK_USER_RATE_WINDOW_SECONDS', 60, 1, 3600),
+      },
+    },
     trustProxy: r.int('TRUST_PROXY', 0, 0, 10),
     logging: {
       dir: r.str('LOG_DIR') || null,
@@ -257,6 +276,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       fallbackModels: r.str('GEMINI_FALLBACK_MODEL').split(',').map((name) => name.trim()).filter((name) => name !== ''),
       requestTimeoutMs: r.int('GEMINI_REQUEST_TIMEOUT_MS', 20000, 1000, 120000),
       quotaMaxWaitMs: r.int('GEMINI_QUOTA_MAX_WAIT_MS', 20000, 0, 120000),
+      maxRequestsPerMinute: r.int('GEMINI_MAX_RPM', 0, 0, 100000),
+      maxConcurrent: r.int('GEMINI_MAX_CONCURRENT', 4, 0, 64),
+      queueMaxWaitMs: r.int('GEMINI_QUEUE_MAX_WAIT_MS', 30000, 1000, 300000),
       temperature: r.float('GEMINI_TEMPERATURE', 0.4, 0, 2),
       maxToolRounds: r.int('GEMINI_MAX_TOOL_ROUNDS', 6, 1, 12),
     },

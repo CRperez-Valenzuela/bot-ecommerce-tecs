@@ -38,10 +38,16 @@ usa las pruebas rapidas y mira en vivo como la IA va llenando el armado de PC y 
    ventana de PowerShell: arranca `npm run dev` en la misma ventana. Si la variable existe pero está vacía, se usa la del `.env`.
 4. Se aceptan claves `AQ.Ab...` y `AIza...`; no se valida el formato. Si Google la rechaza (401/403) la respuesta es `LLM_AUTH_ERROR`:
    copia la clave completa y confirma que su proyecto tiene habilitada la API de Gemini.
-4b. Si el log muestra `LLM_MODEL_ERROR` (404), el modelo ya no existe para tu cuenta: cambia `GEMINI_MODEL` en `.env` (por defecto `gemini-3.8-flash`) y reinicia.
+4b. Si el log muestra `LLM_MODEL_ERROR` (404), ningún modelo de tu lista está disponible para tu cuenta/clave (la disponibilidad puede variar por cuenta): ejecuta `node probe-models.js gemini-3.8-flash gemini-3.6-flash gemini-3.5-flash-lite`, pon uno que FUNCIONE en `GEMINI_MODEL`, otros en `GEMINI_FALLBACK_MODEL` y reinicia. Un 404 en el principal pasa solo al siguiente modelo.
 4c. `LLM_UNAVAILABLE` (503) = Gemini con alta demanda temporal: el servidor ya reintenta solo (`GEMINI_MAX_RETRIES`, `GEMINI_RETRY_BASE_MS`); puedes definir `GEMINI_FALLBACK_MODEL` (uno o varios modelos separados por coma) como respaldo; `GEMINI_REQUEST_TIMEOUT_MS` limita cada intento. Un 429 de Gemini (cuota agotada) sale como `LLM_QUOTA` y no es el límite del servidor (ese es `RATE_LIMITED`). Para saber qué modelos responden con tu clave: `node probe-models.js modelo1 modelo2`.
 5. Tras editar `.env`, reinicia `npm run dev` (el modo watch no vigila archivos que empiezan con punto).
 6. Evita crear el `.env` con `echo ... > .env` de PowerShell (genera UTF-16); el cargador lo tolera y avisa, pero guárdalo como UTF-8.
+
+## Demostración y control de flujo
+
+Guía paso a paso para la demo (instalación, acceso del jefe desde otra PC, guion y lista de verificación): [`docs/MANUAL_INSTALACION_DEMO.md`](docs/MANUAL_INSTALACION_DEMO.md).
+
+Para WhatsApp móvil el servidor agrupa los mensajes seguidos de un cliente (`MESSAGE_DEBOUNCE_MS`), limita a cada cliente (`WEBHOOK_USER_RATE_MAX`) y pone en cola las llamadas a Gemini (`GEMINI_MAX_RPM`, `GEMINI_MAX_CONCURRENT`, `GEMINI_QUEUE_MAX_WAIT_MS`). Detalle en `.env.example`.
 
 ## Despliegue con Docker (llave en mano)
 

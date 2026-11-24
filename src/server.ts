@@ -70,7 +70,8 @@ function main(): void {
   const shutdown = (signal: string): void => {
     log.info('Apagando servidor', { signal });
     container.sessions.stopSweeper();
-    server.close(() => process.exit(0));
+    // Responde lo que esta esperando a que termine una rafaga de mensajes antes de cerrar.
+    void container.dispatcher.flushAll().finally(() => server.close(() => process.exit(0)));
     setTimeout(() => process.exit(1), 10_000).unref();
   };
   process.on('SIGTERM', () => shutdown('SIGTERM'));

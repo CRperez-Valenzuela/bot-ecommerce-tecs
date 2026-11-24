@@ -6,6 +6,65 @@ creados o modificados en ella.
 
 ---
 
+## Sesión 10 — Control de flujo para WhatsApp móvil: ráfagas, límite por cliente y cola hacia Gemini (2026-11-23)
+
+Se aplica con `node patch-10-control-de-flujo.js` (sobre los parches anteriores).
+
+**Motivo:** pregunta del usuario "¿cómo se hará cuando el cliente escriba por WhatsApp móvil?". Un cliente real manda varios mensajes seguidos, varios clientes escriben a la vez y la cuota de Gemini (nivel gratuito hoy; el cliente podría pagar después) es limitada.
+
+**Cambios**
+
+1. **Agrupación de ráfagas** (`src/channels/ChannelDispatcher.ts`): los mensajes de texto seguidos de un mismo cliente se juntan y se responden **una sola vez** tras `MESSAGE_DEBOUNCE_MS` de silencio (tope `MESSAGE_DEBOUNCE_MAX_WAIT_MS`). Mercado Libre y los mensajes no soportados (imagen, audio) **no** se agrupan. Los lotes pendientes se vacían al apagar el servidor.
+2. **Límite por cliente en webhooks** (`WEBHOOK_USER_RATE_MAX` por `WEBHOOK_USER_RATE_WINDOW_SECONDS`, se apaga con `RATE_LIMIT_ENABLED=false`): al pasarlo se avisa **una vez por ventana** y se descartan los siguientes sin gastar Gemini. En Mercado Libre no se envía aviso público.
+3. **Cola hacia Gemini** (`src/ai/RequestScheduler.ts`, nuevo): FIFO con concurrencia máxima (`GEMINI_MAX_CONCURRENT`, 4) y ritmo por minuto (`GEMINI_MAX_RPM`, 0 = sin límite). Si la espera supera `GEMINI_QUEUE_MAX_WAIT_MS` (30 s) devuelve `LLM_UNAVAILABLE` (`details.reason = "queue-timeout"`).
+4. Cierre ordenado: `server.ts` vacía los lotes pendientes antes de salir.
+5. Nuevo `docs/MANUAL_INSTALACION_DEMO.md` (instalación, acceso del jefe desde otra PC, guion, lista de verificación, solución de problemas) y sección en README.
+
+**Archivos creados o modificados:** `src/ai/RequestScheduler.ts` (nuevo), `src/ai/GoogleGenAiClient.ts`, `src/channels/ChannelDispatcher.ts`, `src/config/env.ts`, `src/container.ts`, `src/server.ts`, `.env.example`, `tests/throughput-control.test.ts` (nuevo), `docs/MANUAL_INSTALACION_DEMO.md` (nuevo), `README.md`, este archivo.
+
+**Variables de entorno nuevas**
+
+| Variable | Defecto | Uso |
+| --- | --- | --- |
+| `MESSAGE_DEBOUNCE_MS` | 2500 | Silencio antes de responder una ráfaga (0 = no agrupar) |
+| `MESSAGE_DEBOUNCE_MAX_WAIT_MS` | 8000 | Espera máxima acumulando una ráfaga |
+| `WEBHOOK_USER_RATE_MAX` | 10 | Mensajes por cliente y ventana |
+| `WEBHOOK_USER_RATE_WINDOW_SECONDS` | 60 | Ventana del límite por cliente |
+| `GEMINI_MAX_RPM` | 0 | Llamadas a Gemini por minuto (poner el límite de tu plan) |
+| `GEMINI_MAX_CONCURRENT` | 4 | Llamadas simultáneas a Gemini |
+| `GEMINI_QUEUE_MAX_WAIT_MS` | 30000 | Espera máxima en cola |
+
+**Decisiones:** el RPM es global entre modelos (conservador); el aviso de "escribes muy rápido" sale una vez por ventana; el estado vive en memoria de cada proceso (una sola instancia).
+
+**Verificado:** `tsc` sin errores; 243 de 243 pruebas; 6 de 6 mutaciones detectadas (exclusión de Mercado Libre, aviso único, tope de espera, límite RPM, límite de concurrencia, paso de AppError). **No verificado:** carga real con WhatsApp/Meta; formato real del cuerpo 429 de Google. **Límites conocidos:** la agrupación suma ~2,5 s de latencia; un mensaje puede usar varias llamadas a Gemini (vueltas de herramientas); aún no hay derivación a humano ni panel de administración.
+
+---
+
+## Sesión 9 (corrección) — Error de modelo engañoso y un 404 ya no oculta la causa real (2026-11-23)
+
+Se aplica con `node patch-09-modelo-404-respaldo.js` (sobre los parches anteriores).
+
+**Síntoma:** `El modelo de Gemini "gemini-3.6-flash" no esta disponible para esta cuenta`. **Diagnóstico con el log del usuario:** el `cause` de
+Google dice `models/gemini-2.0-flash is no longer available`, un modelo distinto al del mensaje. Es decir, el 404 vino de **otro modelo de la
+cadena** (muy probablemente `gemini-2.0-flash` en `GEMINI_FALLBACK_MODEL`; la documentación lo da por retirado desde el 1 de junio de 2026),
+y el código lo atribuyó erróneamente al modelo principal (bug mío: usaba `options.model` en vez del modelo que falló). El principal
+(`gemini-3.6-flash`) seguramente falló antes por cuota (429) o saturación (503) y el respaldo retirado se tragó ese error.
+
+**Cambios** (`src/ai/GoogleGenAiClient.ts`, `README.md`, `tests/dotenv-and-gemini-key.test.ts` +3 pruebas, este archivo):
+
+1. **El mensaje de `LLM_MODEL_ERROR` nombra el modelo que realmente falló** y todos los probados.
+2. **Un 404 no oculta la causa real:** si otro modelo de la cadena falló por cuota/saturación/timeout, se informa ese error (`LLM_QUOTA`/`LLM_UNAVAILABLE`), y cada modelo con 404 queda en un `warn` ("Modelo de Gemini no disponible para esta cuenta; se omite") con la respuesta de Google.
+3. Un 404 del modelo
+   principal ahora pasa de inmediato al siguiente de `GEMINI_FALLBACK_MODEL` (sin reintentos ni esperas); solo si **ninguno** está disponible se
+devuelve `LLM_MODEL_ERROR`, ahora con todos los modelos probados en el mensaje y en `details.modelsTried`. **Invierte** la regla de la sesión 6
+("nunca respaldo ante 404"). Sin variables nuevas.
+
+**Verificado:** `tsc` sin errores; 225 de 225 pruebas. **Acción del usuario:** quitar `gemini-2.0-flash` de `GEMINI_FALLBACK_MODEL` en `.env` (usa uno que `probe-models.js` marque FUNCIONA). **No verificado:** el contenido real de tu `.env` (inferido del log).
+Nota de la documentación: desde 3.6 Flash, `temperature`/`top_p`/`top_k` están deprecados (la API los ignora y podría devolver error en
+futuras generaciones); hoy el cliente aún envía `temperature` — pendiente sugerido si Google empieza a rechazarlo.
+
+---
+
 ## Sesión 8 (corrección) — Cuota de Gemini (429): espera inteligente, respaldo inmediato y error propio (2026-11-21)
 
 Se aplica con `node patch-08-cuota-gemini.js` (sobre los parches anteriores).

@@ -1,7 +1,8 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import type { Content, FunctionDeclaration, GenerateContentResponse, Part, Schema } from '@google/genai';
 import type { LlmClient, LlmGenerateRequest, LlmMessage, LlmPart, ToolDeclaration, ToolParamSchema } from '../types/llm';
-import { AppError } from '../utils/errors';
+import { AppError, isAppError } from '../utils/errors';
+import { RequestScheduler } from './RequestScheduler';
 import type { Logger } from '../utils/logger';
 import { truncate } from '../utils/text';
 
@@ -23,6 +24,14 @@ export interface GoogleGenAiOptions {
   requestTimeoutMs?: number;
   /** Con un 429 de cuota por minuto, espera maxima en ms para reintentar en el ultimo modelo (por defecto 20000). Mas que eso => LLM_QUOTA. */
   quotaMaxWaitMs?: number;
+  /** Llamadas a Gemini por minuto (0 = sin limite). Ponlo en el limite RPM de tu plan para no tocar la cuota. */
+  maxRequestsPerMinute?: number;
+  /** Llamadas simultaneas a Gemini (por defecto 4; 0 = sin limite). */
+  maxConcurrent?: number;
+  /** Espera maxima en cola antes de fallar con LLM_UNAVAILABLE (por defecto 30000). */
+  queueMaxWaitMs?: number;
+  /** Ventana del ritmo en ms (solo pruebas; 60000). */
+  rateWindowMs?: number;
   log?: Logger;
   /** Solo para pruebas: sustituyen al SDK real, a la espera y al azar. */
   sdk?: GenAiLike;
@@ -133,11 +142,18 @@ const MAX_BACKOFF_MS = 8000;
 /** Adaptador de LlmClient sobre el SDK oficial @google/genai (Gemini API). */
 export class GoogleGenAiClient implements LlmClient {
   private readonly ai: GenAiLike;
+  private readonly scheduler: RequestScheduler;
 
   constructor(private readonly options: GoogleGenAiOptions) {
     // Claves "AIza..." y "AQ.Ab..." (autorizacion) viajan igual: encabezado x-goog-api-key contra la API de Gemini.
     // vertexai:false evita que variables como GOOGLE_GENAI_USE_VERTEXAI desvien la llamada a otro servicio.
     this.ai = options.sdk ?? new GoogleGenAI({ apiKey: options.apiKey, vertexai: false });
+    this.scheduler = new RequestScheduler({
+      maxConcurrent: options.maxConcurrent ?? 4,
+      maxPerWindow: options.maxRequestsPerMinute ?? 0,
+      windowMs: options.rateWindowMs,
+      queueMaxWaitMs: options.queueMaxWaitMs ?? 30000,
+    });
   }
 
   /** Envia con reintentos y retroceso exponencial; lanza el ultimo error si se agotan o no es reintentable. */
@@ -180,7 +196,8 @@ export class GoogleGenAiClient implements LlmClient {
     const functionDeclarations = request.tools.map(toDeclaration);
 
     const timeoutMs = this.options.requestTimeoutMs ?? 20000;
-    const send = (model: string): Promise<GenerateContentResponse> => {
+    // El temporizador de cada intento empieza al salir de la cola, no al entrar.
+    const sendNow = (model: string): Promise<GenerateContentResponse> => {
       const controller = new AbortController();
       let timer: NodeJS.Timeout | undefined;
       const timeout = new Promise<never>((_resolve, reject) => {
@@ -206,6 +223,7 @@ export class GoogleGenAiClient implements LlmClient {
       call.catch(() => undefined);
       return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
     };
+    const send = (model: string): Promise<GenerateContentResponse> => this.scheduler.run(() => sendNow(model));
 
     const { model, fallbackModels = [] } = this.options;
     const models = [...new Set([model, ...fallbackModels.filter((name) => name.trim() !== '')])];
@@ -214,7 +232,7 @@ export class GoogleGenAiClient implements LlmClient {
     const tried: string[] = [];
 
     try {
-      let lastError: unknown;
+      const failures: Array<{ model: string; error: unknown }> = [];
       for (const candidate of models) {
         lastModel = candidate;
         tried.push(candidate);
@@ -227,14 +245,26 @@ export class GoogleGenAiClient implements LlmClient {
           if (candidate === model && models.length > 1) this.options.log?.debug('Respuesta del modelo principal', { model });
           return fromResponse(response);
         } catch (error) {
-          lastError = error;
+          failures.push({ model: candidate, error });
           const failure = statusOf(error);
-          // Se pasa al siguiente modelo ante fallo de servidor, timeout o cuota (429, que es por modelo); 401/403/404/400 no mejoran.
-          if (failure === undefined || !(SERVER_FAILURE.has(failure) || failure === 429)) throw error;
+          if (failure === 404) {
+            this.options.log?.warn('Modelo de Gemini no disponible para esta cuenta; se omite', {
+              model: candidate,
+              cause: truncate(error instanceof Error ? error.message : String(error), 300),
+            });
+          }
+          // Se pasa al siguiente modelo ante fallo de servidor, timeout, cuota (429, por modelo) o modelo no disponible (404, por cuenta);
+          // 401/403/400 no mejoran cambiando de modelo.
+          if (failure === undefined || !(SERVER_FAILURE.has(failure) || failure === 429 || failure === 404)) throw error;
         }
       }
-      throw lastError;
+      // Un 404 solo dice que ese modelo no esta disponible; si otro modelo fallo por cuota/saturacion/timeout, ese es el problema real.
+      const chosen = [...failures].reverse().find((failure) => statusOf(failure.error) !== 404) ?? failures[failures.length - 1];
+      lastModel = chosen?.model ?? lastModel;
+      throw chosen?.error;
     } catch (error) {
+      // Errores ya clasificados (p. ej. la espera en cola agotada) se propagan tal cual.
+      if (isAppError(error)) throw error;
       const status = statusOf(error);
       if (status !== undefined && SERVER_FAILURE.has(status)) {
         throw new AppError('LLM_UNAVAILABLE', 'El servicio de IA esta con mucha demanda; intenta de nuevo en unos segundos', 503, {
@@ -265,10 +295,12 @@ export class GoogleGenAiClient implements LlmClient {
         });
       }
       if (status === 404) {
-        throw new AppError('LLM_MODEL_ERROR', `El modelo de Gemini "${this.options.model}" no esta disponible para esta cuenta`, 502, {
+        const names = tried.map((name) => `"${name}"`).join(', ');
+        throw new AppError('LLM_MODEL_ERROR', `Gemini no tiene disponible para esta cuenta ${tried.length > 1 ? 'ninguno de los modelos' : 'el modelo'} ${names}`, 502, {
           status,
-          model: this.options.model,
-          hint: 'Cambia GEMINI_MODEL en .env por un modelo vigente (por defecto gemini-3.8-flash), guarda y reinicia el servidor. Google retira modelos antiguos.',
+          model: lastModel,
+          modelsTried: tried,
+          hint: 'Cambia GEMINI_MODEL / GEMINI_FALLBACK_MODEL en .env por modelos que respondan con tu clave (prueba: node probe-models.js modelo1 modelo2), guarda y reinicia el servidor.',
           cause: truncate(error instanceof Error ? error.message : String(error), 800),
         });
       }

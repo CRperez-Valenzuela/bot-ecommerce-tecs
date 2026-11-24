@@ -1,4 +1,6 @@
 import { ChannelDispatcher } from './channels/ChannelDispatcher';
+import { RateLimiter } from './middleware/rateLimit';
+import { SeenCache } from './channels/SeenCache';
 import { InstagramAdapter } from './channels/InstagramAdapter';
 import { MercadoLibreAdapter } from './channels/MercadoLibreAdapter';
 import { WhatsAppAdapter } from './channels/WhatsAppAdapter';
@@ -66,6 +68,9 @@ export function buildContainer(config: AppConfig, log: Logger, overrides: Contai
             fallbackModels: config.gemini.fallbackModels,
             requestTimeoutMs: config.gemini.requestTimeoutMs,
             quotaMaxWaitMs: config.gemini.quotaMaxWaitMs,
+            maxRequestsPerMinute: config.gemini.maxRequestsPerMinute,
+            maxConcurrent: config.gemini.maxConcurrent,
+            queueMaxWaitMs: config.gemini.queueMaxWaitMs,
             log: log.child({ component: 'gemini-client' }),
           })
         : null;
@@ -118,7 +123,13 @@ export function buildContainer(config: AppConfig, log: Logger, overrides: Contai
     sessions,
     gemini,
     conversation,
-    dispatcher: new ChannelDispatcher(conversation, log.child({ component: 'dispatcher' })),
+    dispatcher: new ChannelDispatcher(conversation, log.child({ component: 'dispatcher' }), new SeenCache(), {
+      debounceMs: config.messaging.debounceMs,
+      maxWaitMs: config.messaging.debounceMaxWaitMs,
+      userRateLimiter: config.messaging.userRate.enabled
+        ? new RateLimiter({ max: config.messaging.userRate.max, windowMs: config.messaging.userRate.windowSeconds * 1000 })
+        : null,
+    }),
     adapters,
     log,
   };

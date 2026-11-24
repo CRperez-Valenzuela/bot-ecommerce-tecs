@@ -278,6 +278,7 @@ describe('GoogleGenAiClient: modelo retirado (404)', () => {
         assert.equal(error.code, 'LLM_MODEL_ERROR');
         assert.match(error.message, /gemini-2\.5-flash/);
         assert.equal((error.details as { model: string }).model, 'gemini-2.5-flash');
+        assert.deepEqual((error.details as { modelsTried: string[] }).modelsTried, ['gemini-2.5-flash']);
         return true;
       },
     );
@@ -565,5 +566,74 @@ describe('GoogleGenAiClient: cuota agotada (429)', () => {
     assert.equal(loadConfig({}).gemini.quotaMaxWaitMs, 20000);
     assert.equal(loadConfig({ GEMINI_QUOTA_MAX_WAIT_MS: '0' }).gemini.quotaMaxWaitMs, 0);
     assert.throws(() => loadConfig({ GEMINI_QUOTA_MAX_WAIT_MS: '999999' }));
+  });
+});
+
+describe('GoogleGenAiClient: modelo no disponible (404) con cadena de respaldo', () => {
+  const request = {
+    systemInstruction: 's',
+    messages: [{ role: 'user' as const, parts: [{ kind: 'text' as const, text: 'hola' }] }],
+    tools: [],
+    temperature: 0.4,
+    maxOutputTokens: 64,
+  };
+  const okResponse = { candidates: [{ content: { parts: [{ text: 'listo' }] } }] } as unknown as Awaited<
+    ReturnType<GenAiLike['models']['generateContent']>
+  >;
+  const sdkFor = (available: string[]): { sdk: GenAiLike; calls: string[] } => {
+    const calls: string[] = [];
+    return {
+      calls,
+      sdk: {
+        models: {
+          generateContent: async (params) => {
+            const model = (params as { model: string }).model;
+            calls.push(model);
+            if (available.includes(model)) return okResponse;
+            throw Object.assign(new Error('{"error":{"code":404,"status":"NOT_FOUND"}}'), { status: 404 });
+          },
+        },
+      },
+    };
+  };
+
+  it('si el principal da 404 usa el siguiente modelo sin reintentar ni esperar', async () => {
+    const { sdk, calls } = sdkFor(['b']);
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', fallbackModels: ['b'], sdk, sleep: async () => { throw new Error('no debe esperar'); } });
+    await client.generate(request);
+    assert.deepEqual(calls, ['a', 'b']);
+  });
+
+  it('si ninguno esta disponible => LLM_MODEL_ERROR que nombra todos los modelos probados', async () => {
+    const { sdk, calls } = sdkFor([]);
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', fallbackModels: ['b', 'c'], sdk });
+    await assert.rejects(client.generate(request), (error: unknown) => {
+      assert.ok(isAppError(error));
+      assert.equal(error.code, 'LLM_MODEL_ERROR');
+      assert.match(error.message, /"a", "b", "c"/);
+      assert.deepEqual((error.details as { modelsTried: string[] }).modelsTried, ['a', 'b', 'c']);
+      return true;
+    });
+    assert.deepEqual(calls, ['a', 'b', 'c']);
+  });
+
+  it('un respaldo con 404 no oculta el problema real del principal (429/503): se informa el del principal', async () => {
+    const make = (status: number): GenAiLike => ({
+      models: {
+        generateContent: async (params) => {
+          const model = (params as { model: string }).model;
+          throw Object.assign(new Error(model === 'a' ? 'cuota agotada' : '{"error":{"code":404}}'), { status: model === 'a' ? status : 404 });
+        },
+      },
+    });
+    for (const [status, code] of [[429, 'LLM_QUOTA'], [503, 'LLM_UNAVAILABLE']] as const) {
+      const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', fallbackModels: ['retirado'], maxRetries: 0, sdk: make(status), sleep: async () => {} });
+      await assert.rejects(client.generate(request), (error: unknown) => {
+        assert.ok(isAppError(error));
+        assert.equal(error.code, code);
+        assert.deepEqual((error.details as { modelsTried: string[] }).modelsTried, ['a', 'retirado']);
+        return true;
+      });
+    }
   });
 });
