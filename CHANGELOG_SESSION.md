@@ -6,6 +6,74 @@ creados o modificados en ella.
 
 ---
 
+## Sesión 8 (corrección) — Cuota de Gemini (429): espera inteligente, respaldo inmediato y error propio (2026-11-21)
+
+Se aplica con `node patch-08-cuota-gemini.js` (sobre los parches anteriores).
+
+**Diagnóstico (log del usuario):** tras ~7 mensajes aparecía "Demasiados mensajes en poco tiempo". No era el límite del servidor
+(20/min/IP; no hubo aviso `Limite de tasa excedido`) sino `status:429` de `gemini-3.6-flash`: **cuota de Gemini agotada**. Dos causas de fondo:
+(1) un mensaje del cliente puede gastar varias llamadas a Gemini (una por vuelta de herramientas); (2) el nivel gratuito tiene límites bajos.
+El simulador mostraba el mismo texto para el `RATE_LIMITED` local y para el 429 de Google, y los reintentos de 1–4 s no sirven contra una
+cuota por minuto (Google suele pedir más espera).
+
+**Cambios:** `src/ai/GoogleGenAiClient.ts`, `src/utils/errors.ts`, `src/config/env.ts`, `src/container.ts`, `.env.example`, `README.md`,
+`public/demo/index.html`, `tests/dotenv-and-gemini-key.test.ts` (+7 pruebas; se reemplazó la que exigía no usar respaldo ante 429), este archivo.
+
+1. **Un 429 con modelo de respaldo pasa de inmediato al siguiente** (la cuota es por modelo): sin esperas ni reintentos inútiles.
+   **Esto invierte la regla de la sesión 6** ("nunca respaldo ante 429").
+2. **Sin respaldo (último modelo):** se lee la espera que pide Google (`retryDelay` / "retry in Ns") y se espera ese tiempo + hasta 0,5 s,
+   si no supera `GEMINI_QUOTA_MAX_WAIT_MS` (20 s); sin indicación, retroceso exponencial como antes. **Cuota diaria:** no se espera.
+3. **Error propio `LLM_QUOTA`** (HTTP 429): `details` = `scope` (`minute`/`day`/`unknown`), `retryAfterSeconds`, `modelsTried`, `cause`;
+   queda un `warn` visible en el log (antes el 429 solo se registraba en `debug`). `RATE_LIMITED` queda exclusivamente para el límite local.
+4. **Simulador:** mensaje propio para `LLM_QUOTA` ("no es el límite del simulador", espera sugerida o cuota diaria agotada).
+
+| Variable | Defecto | Uso |
+| --- | --- | --- |
+| `GEMINI_QUOTA_MAX_WAIT_MS` | `20000` | Espera máxima ante un 429 por minuto en el último modelo (0..120000) |
+
+**Recomendado:** `GEMINI_FALLBACK_MODEL=` con un modelo que `probe-models.js` marque como FUNCIONA (cada modelo tiene su cuota), y revisar los
+límites reales de tu clave en Google AI Studio; para producción con clientes, activar facturación.
+
+**Verificado:** `tsc` sin errores; 222 de 222 pruebas; mutación: 4 regresiones, 4 detectadas. **No verificado:** el formato exacto del cuerpo del
+429 real de Google (el lector `parseQuotaInfo` se probó con cuerpos modelados según el formato documentado de `RetryInfo`/`QuotaFailure` y es
+tolerante: si no reconoce nada, usa el retroceso habitual). Pendiente sugerido: reducir llamadas por mensaje (vueltas de herramientas) y/o
+un limitador de ritmo hacia Gemini (`GEMINI_MAX_RPM`) para no tocar la cuota.
+
+---
+
+## Sesión 7 (corrección) — Tiempo máximo por intento y cadena de modelos de respaldo (2026-11-21)
+
+Se aplica con `node patch-07-timeout-y-respaldos.js` (sobre los parches anteriores).
+
+**Diagnóstico con `probe-models.js` (clave real del usuario):** `gemini-3.8-flash` sin respuesta en 30 s; `gemini-3.6-flash` FUNCIONA (4,7 s);
+`gemini-flash-latest` 429 `RESOURCE_EXHAUSTED` (cuota agotada). El 403 anterior del `curl` fue por `$env:GEMINI_API_KEY` vacío en esa ventana
+de PowerShell, no por la clave. Conclusión: el modelo 3.8 está saturado de forma intermitente; el 3.6 responde.
+
+**Cambios:** `src/ai/GoogleGenAiClient.ts`, `src/config/env.ts`, `src/container.ts`, `.env.example`, `README.md`,
+`tests/dotenv-and-gemini-key.test.ts` (+3 pruebas), este archivo.
+
+1. **Tiempo máximo por intento** (`GEMINI_REQUEST_TIMEOUT_MS`, 20000): el intento se aborta (`AbortController`) y falla como 504 interno.
+   **Un timeout no se reintenta en el mismo modelo** (ya costó todo el tiempo) y pasa al siguiente modelo; así el peor caso ya no son minutos.
+2. **Cadena de respaldos:** `GEMINI_FALLBACK_MODEL` ahora admite varios modelos separados por coma, en orden (renombrado internamente a `fallbackModels`).
+   Se pasa al siguiente ante 500/502/503/504 o timeout; nunca ante 429, 401/403, 404 ni 400. Duplicados ignorados.
+3. `LLM_UNAVAILABLE` ahora incluye `modelsTried` y `timedOut` en `details`.
+
+### Variables de entorno
+
+| Variable | Defecto | Uso |
+| --- | --- | --- |
+| `GEMINI_REQUEST_TIMEOUT_MS` | `20000` | Tiempo máximo por intento (1000..120000) |
+| `GEMINI_FALLBACK_MODEL` | vacío | Ahora lista separada por comas |
+
+**Configuración recomendada según el diagnóstico (no cambia el código):** `GEMINI_MODEL=gemini-3.6-flash` y, si quieres,
+`GEMINI_FALLBACK_MODEL=gemini-3.8-flash`. El 429 de `gemini-flash-latest` indica cuota agotada en el nivel de la cuenta: no sirve de respaldo.
+
+**Verificado:** `tsc` sin errores; 216 de 216 pruebas; mutación: 3 regresiones, 3 detectadas. **No verificado:** el comportamiento
+real de `abortSignal` en `@google/genai` (en las pruebas el SDK es un doble; el temporizador aborta igualmente la espera).
+Pendiente sugerido: responder 200 a Meta de inmediato y procesar el mensaje de WhatsApp/Instagram en segundo plano.
+
+---
+
 ## Sesión 6 (corrección) — Alta demanda de Gemini (503): reintentos y modelo de respaldo (2026-11-21)
 
 Se aplica con `node patch-06-reintentos-gemini.js` (sobre los parches anteriores).

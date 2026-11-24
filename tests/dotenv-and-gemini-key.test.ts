@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { GoogleGenAiClient } from '../src/ai/GoogleGenAiClient';
+import { GoogleGenAiClient, parseQuotaInfo } from '../src/ai/GoogleGenAiClient';
 import type { GenAiLike } from '../src/ai/GoogleGenAiClient';
 import { decodeEnvFile, envFileCandidates, loadDotEnv, parseDotEnv } from '../src/config/dotenv';
 import { loadConfig, resolveGeminiKey } from '../src/config/env';
@@ -246,7 +246,7 @@ describe('GoogleGenAiClient: errores de autenticacion', () => {
     }
   });
 
-  it('otros fallos siguen siendo LLM_ERROR y 429 RATE_LIMITED', async () => {
+  it('otros fallos siguen siendo LLM_ERROR y 429 pasa a LLM_QUOTA', async () => {
     const run = async (status: number): Promise<string> => {
       const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'm', sdk: failing(status), sleep: async () => {} });
       try {
@@ -257,7 +257,7 @@ describe('GoogleGenAiClient: errores de autenticacion', () => {
       return 'sin error';
     };
     assert.equal(await run(400), 'LLM_ERROR');
-    assert.equal(await run(429), 'RATE_LIMITED');
+    assert.equal(await run(429), 'LLM_QUOTA');
   });
 });
 
@@ -355,29 +355,22 @@ describe('GoogleGenAiClient: alta demanda (503) con reintentos', () => {
 
   it('con GEMINI_FALLBACK_MODEL prueba el alternativo tras agotar el principal', async () => {
     const { sdk, calls } = scripted({ principal: ['503'], respaldo: ['ok'] });
-    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'principal', fallbackModel: 'respaldo', maxRetries: 1, sdk, sleep: async () => {} });
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'principal', fallbackModels: ['respaldo'], maxRetries: 1, sdk, sleep: async () => {} });
     await client.generate(request);
     assert.deepEqual(calls, ['principal', 'principal', 'respaldo']);
   });
 
   it('un modelo alternativo igual al principal se ignora; si ambos fallan sigue LLM_UNAVAILABLE', async () => {
     const same = scripted({ principal: ['503'] });
-    await assert.rejects(new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'principal', fallbackModel: 'principal', maxRetries: 0, sdk: same.sdk, sleep: async () => {} }).generate(request));
+    await assert.rejects(new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'principal', fallbackModels: ['principal'], maxRetries: 0, sdk: same.sdk, sleep: async () => {} }).generate(request));
     assert.deepEqual(same.calls, ['principal']);
 
     const both = scripted({ principal: ['503'], respaldo: ['503'] });
     await assert.rejects(
-      new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'principal', fallbackModel: 'respaldo', maxRetries: 0, sdk: both.sdk, sleep: async () => {} }).generate(request),
+      new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'principal', fallbackModels: ['respaldo'], maxRetries: 0, sdk: both.sdk, sleep: async () => {} }).generate(request),
       (error: unknown) => isAppError(error) && error.code === 'LLM_UNAVAILABLE',
     );
     assert.deepEqual(both.calls, ['principal', 'respaldo']);
-  });
-
-  it('429 reintenta pero no usa el modelo alternativo y acaba en RATE_LIMITED', async () => {
-    const { sdk, calls } = scripted({ principal: ['429'], respaldo: ['ok'] });
-    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'principal', fallbackModel: 'respaldo', maxRetries: 2, sdk, sleep: async () => {} });
-    await assert.rejects(client.generate(request), (error: unknown) => isAppError(error) && error.code === 'RATE_LIMITED');
-    assert.deepEqual(calls, ['principal', 'principal', 'principal']);
   });
 
   it('GEMINI_MAX_RETRIES=0 no reintenta; 404 y 400 nunca se reintentan', async () => {
@@ -388,9 +381,189 @@ describe('GoogleGenAiClient: alta demanda (503) con reintentos', () => {
 
   it('la configuracion lee GEMINI_MAX_RETRIES, GEMINI_RETRY_BASE_MS y GEMINI_FALLBACK_MODEL', () => {
     const defaults = loadConfig({}).gemini;
-    assert.deepEqual([defaults.maxRetries, defaults.retryBaseMs, defaults.fallbackModel], [3, 1000, null]);
-    const custom = loadConfig({ GEMINI_MAX_RETRIES: '5', GEMINI_RETRY_BASE_MS: '250', GEMINI_FALLBACK_MODEL: ' otro ' }).gemini;
-    assert.deepEqual([custom.maxRetries, custom.retryBaseMs, custom.fallbackModel], [5, 250, 'otro']);
+    assert.deepEqual([defaults.maxRetries, defaults.retryBaseMs, defaults.fallbackModels, defaults.requestTimeoutMs], [3, 1000, [], 20000]);
+    const custom = loadConfig({ GEMINI_MAX_RETRIES: '5', GEMINI_RETRY_BASE_MS: '250', GEMINI_FALLBACK_MODEL: ' a , b ,, ', GEMINI_REQUEST_TIMEOUT_MS: '5000' }).gemini;
+    assert.deepEqual([custom.maxRetries, custom.retryBaseMs, custom.fallbackModels, custom.requestTimeoutMs], [5, 250, ['a', 'b'], 5000]);
+    assert.throws(() => loadConfig({ GEMINI_REQUEST_TIMEOUT_MS: '10' }));
     assert.throws(() => loadConfig({ GEMINI_MAX_RETRIES: '99' }));
+  });
+});
+
+describe('GoogleGenAiClient: timeout por intento y cadena de modelos', () => {
+  const request = {
+    systemInstruction: 's',
+    messages: [{ role: 'user' as const, parts: [{ kind: 'text' as const, text: 'hola' }] }],
+    tools: [],
+    temperature: 0.4,
+    maxOutputTokens: 64,
+  };
+  const okResponse = { candidates: [{ content: { parts: [{ text: 'listo' }] } }] } as unknown as Awaited<
+    ReturnType<GenAiLike['models']['generateContent']>
+  >;
+
+  /** SDK por modelo: 'cuelga' no responde nunca; 'ok' responde; '503' falla. */
+  function sdkWith(behavior: Record<string, 'cuelga' | 'ok' | '503'>): { sdk: GenAiLike; calls: string[] } {
+    const calls: string[] = [];
+    const sdk: GenAiLike = {
+      models: {
+        generateContent: (params) => {
+          const model = (params as { model: string }).model;
+          calls.push(model);
+          const mode = behavior[model] ?? 'ok';
+          if (mode === 'ok') return Promise.resolve(okResponse);
+          if (mode === 'cuelga') return new Promise(() => undefined);
+          return Promise.reject(Object.assign(new Error('UNAVAILABLE'), { status: 503 }));
+        },
+      },
+    };
+    return { sdk, calls };
+  }
+
+  it('un intento que excede el tiempo maximo no se reintenta y pasa al siguiente modelo', async () => {
+    const { sdk, calls } = sdkWith({ lento: 'cuelga', rapido: 'ok' });
+    const started = Date.now();
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'lento', fallbackModels: ['rapido'], requestTimeoutMs: 40, sdk, sleep: async () => {} });
+    const message = await client.generate(request);
+    assert.deepEqual(calls, ['lento', 'rapido']);
+    assert.equal(message.parts[0]?.kind, 'text');
+    assert.ok(Date.now() - started < 1000);
+  });
+
+  it('cadena de varios modelos en orden; si todos fallan => LLM_UNAVAILABLE con modelsTried', async () => {
+    const { sdk, calls } = sdkWith({ a: '503', b: 'cuelga', c: '503' });
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', fallbackModels: ['b', 'c', 'a'], maxRetries: 0, requestTimeoutMs: 30, sdk, sleep: async () => {} });
+    await assert.rejects(client.generate(request), (error: unknown) => {
+      assert.ok(isAppError(error));
+      assert.equal(error.code, 'LLM_UNAVAILABLE');
+      assert.deepEqual((error.details as { modelsTried: string[] }).modelsTried, ['a', 'b', 'c']);
+      return true;
+    });
+    assert.deepEqual(calls, ['a', 'b', 'c']);
+  });
+
+  it('solo timeout en un unico modelo => LLM_UNAVAILABLE con timedOut:true', async () => {
+    const { sdk } = sdkWith({ x: 'cuelga' });
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'x', requestTimeoutMs: 30, sdk, sleep: async () => {} });
+    await assert.rejects(client.generate(request), (error: unknown) => {
+      assert.ok(isAppError(error));
+      assert.equal((error.details as { timedOut: boolean }).timedOut, true);
+      return true;
+    });
+  });
+});
+
+describe('GoogleGenAiClient: cuota agotada (429)', () => {
+  const request = {
+    systemInstruction: 's',
+    messages: [{ role: 'user' as const, parts: [{ kind: 'text' as const, text: 'hola' }] }],
+    tools: [],
+    temperature: 0.4,
+    maxOutputTokens: 64,
+  };
+  const okResponse = { candidates: [{ content: { parts: [{ text: 'listo' }] } }] } as unknown as Awaited<
+    ReturnType<GenAiLike['models']['generateContent']>
+  >;
+  const minuteBody = JSON.stringify({
+    error: {
+      code: 429,
+      status: 'RESOURCE_EXHAUSTED',
+      message: 'You exceeded your current quota',
+      details: [
+        { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' }] },
+        { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '12s' },
+      ],
+    },
+  });
+  const dayBody = JSON.stringify({
+    error: { code: 429, status: 'RESOURCE_EXHAUSTED', details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }] },
+  });
+
+  /** Cada modelo: lista de pasos ('ok' o el cuerpo de un 429); el ultimo paso se repite. */
+  function quotaSdk(script: Record<string, string[]>): { sdk: GenAiLike; calls: string[] } {
+    const calls: string[] = [];
+    const counters: Record<string, number> = {};
+    const sdk: GenAiLike = {
+      models: {
+        generateContent: async (params) => {
+          const model = (params as { model: string }).model;
+          calls.push(model);
+          const steps = script[model] ?? ['ok'];
+          const step = steps[Math.min(counters[model] ?? 0, steps.length - 1)] ?? 'ok';
+          counters[model] = (counters[model] ?? 0) + 1;
+          if (step === 'ok') return okResponse;
+          throw Object.assign(new Error(step), { status: 429 });
+        },
+      },
+    };
+    return { sdk, calls };
+  }
+
+  it('parseQuotaInfo lee espera y alcance (minuto/dia) y tolera formatos raros', () => {
+    assert.deepEqual(parseQuotaInfo(new Error(minuteBody)), { scope: 'minute', retryAfterMs: 12000 });
+    assert.deepEqual(parseQuotaInfo(new Error(dayBody)), { scope: 'day', retryAfterMs: null });
+    assert.deepEqual(parseQuotaInfo(new Error('Please retry in 34.5s.')), { scope: 'unknown', retryAfterMs: 34500 });
+    assert.deepEqual(parseQuotaInfo('texto raro'), { scope: 'unknown', retryAfterMs: null });
+    assert.deepEqual(parseQuotaInfo(undefined), { scope: 'unknown', retryAfterMs: null });
+  });
+
+  it('con modelo de respaldo, un 429 pasa al instante al siguiente (sin esperar ni reintentar)', async () => {
+    const { sdk, calls } = quotaSdk({ a: [minuteBody], b: ['ok'] });
+    const waits: number[] = [];
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', fallbackModels: ['b'], sdk, sleep: async (ms) => void waits.push(ms) });
+    await client.generate(request);
+    assert.deepEqual(calls, ['a', 'b']);
+    assert.deepEqual(waits, []);
+  });
+
+  it('sin respaldo, espera lo que pide Google (12 s + azar) y reintenta una vez', async () => {
+    const { sdk, calls } = quotaSdk({ a: [minuteBody, 'ok'] });
+    const waits: number[] = [];
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', sdk, sleep: async (ms) => void waits.push(ms), random: () => 0 });
+    await client.generate(request);
+    assert.deepEqual(calls, ['a', 'a']);
+    assert.deepEqual(waits, [12000]);
+  });
+
+  it('si Google pide esperar mas que GEMINI_QUOTA_MAX_WAIT_MS => LLM_QUOTA sin esperar', async () => {
+    const { sdk, calls } = quotaSdk({ a: [minuteBody] });
+    const waits: number[] = [];
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', quotaMaxWaitMs: 5000, sdk, sleep: async (ms) => void waits.push(ms) });
+    await assert.rejects(client.generate(request), (error: unknown) => {
+      assert.ok(isAppError(error));
+      assert.equal(error.code, 'LLM_QUOTA');
+      assert.equal(error.httpStatus, 429);
+      const details = error.details as { scope: string; retryAfterSeconds: number | null; modelsTried: string[] };
+      assert.deepEqual([details.scope, details.retryAfterSeconds, details.modelsTried], ['minute', 12, ['a']]);
+      return true;
+    });
+    assert.equal(calls.length, 1);
+    assert.deepEqual(waits, []);
+  });
+
+  it('cuota diaria: no se espera; con todos los modelos agotados => LLM_QUOTA con todos los modelos', async () => {
+    const { sdk, calls } = quotaSdk({ a: [dayBody], b: [dayBody] });
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', fallbackModels: ['b'], sdk, sleep: async () => { throw new Error('no debe esperar'); } });
+    await assert.rejects(client.generate(request), (error: unknown) => {
+      assert.ok(isAppError(error));
+      assert.equal(error.code, 'LLM_QUOTA');
+      assert.deepEqual((error.details as { modelsTried: string[] }).modelsTried, ['a', 'b']);
+      return true;
+    });
+    assert.deepEqual(calls, ['a', 'b']);
+  });
+
+  it('429 sin informacion de espera en el ultimo modelo usa el retroceso exponencial habitual', async () => {
+    const { sdk, calls } = quotaSdk({ a: ['cuota', 'cuota', 'ok'] });
+    const waits: number[] = [];
+    const client = new GoogleGenAiClient({ apiKey: AQ_KEY, model: 'a', sdk, sleep: async (ms) => void waits.push(ms), random: () => 0 });
+    await client.generate(request);
+    assert.equal(calls.length, 3);
+    assert.deepEqual(waits, [1000, 2000]);
+  });
+
+  it('la configuracion lee GEMINI_QUOTA_MAX_WAIT_MS', () => {
+    assert.equal(loadConfig({}).gemini.quotaMaxWaitMs, 20000);
+    assert.equal(loadConfig({ GEMINI_QUOTA_MAX_WAIT_MS: '0' }).gemini.quotaMaxWaitMs, 0);
+    assert.throws(() => loadConfig({ GEMINI_QUOTA_MAX_WAIT_MS: '999999' }));
   });
 });

@@ -63,7 +63,9 @@ export function buildContainer(config: AppConfig, log: Logger, overrides: Contai
             model: config.gemini.model,
             maxRetries: config.gemini.maxRetries,
             retryBaseMs: config.gemini.retryBaseMs,
-            fallbackModel: config.gemini.fallbackModel,
+            fallbackModels: config.gemini.fallbackModels,
+            requestTimeoutMs: config.gemini.requestTimeoutMs,
+            quotaMaxWaitMs: config.gemini.quotaMaxWaitMs,
             log: log.child({ component: 'gemini-client' }),
           })
         : null;

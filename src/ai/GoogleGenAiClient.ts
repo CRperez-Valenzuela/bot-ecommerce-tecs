@@ -17,8 +17,12 @@ export interface GoogleGenAiOptions {
   maxRetries?: number;
   /** Espera base del retroceso exponencial en ms (1000, 2000, 4000... con tope de 8000 y algo de azar). Por defecto 1000. */
   retryBaseMs?: number;
-  /** Modelo alternativo que se prueba una vez agotados los reintentos de un error de servidor (no con 429). */
-  fallbackModel?: string | null;
+  /** Modelos alternativos, en orden, que se prueban al agotar el anterior por error de servidor, timeout o cuota (429; cada modelo tiene su propia cuota). */
+  fallbackModels?: readonly string[];
+  /** Tiempo maximo por intento en ms (por defecto 20000). Un intento que lo excede NO se reintenta: se pasa al siguiente modelo. */
+  requestTimeoutMs?: number;
+  /** Con un 429 de cuota por minuto, espera maxima en ms para reintentar en el ultimo modelo (por defecto 20000). Mas que eso => LLM_QUOTA. */
+  quotaMaxWaitMs?: number;
   log?: Logger;
   /** Solo para pruebas: sustituyen al SDK real, a la espera y al azar. */
   sdk?: GenAiLike;
@@ -96,6 +100,32 @@ function statusOf(error: unknown): number | undefined {
   return undefined;
 }
 
+function isTimeout(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'timedOut' in error && error.timedOut === true;
+}
+
+export interface QuotaInfo {
+  /** 'day' = cuota diaria (esperar no sirve); 'minute' = por minuto; 'unknown' = no se pudo saber. */
+  scope: 'day' | 'minute' | 'unknown';
+  /** Espera sugerida por Google (RetryInfo o "retry in Ns"); null si no la indica. */
+  retryAfterMs: number | null;
+}
+
+/** Lee el cuerpo de un 429 de Gemini (JSON dentro de error.message). Tolerante: si el formato cambia devuelve 'unknown'. */
+export function parseQuotaInfo(error: unknown): QuotaInfo {
+  const text = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  let retryAfterMs: number | null = null;
+  let scope: QuotaInfo['scope'] = 'unknown';
+
+  const retry = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(text) ?? /retry in (\d+(?:\.\d+)?)\s*s/i.exec(text);
+  if (retry?.[1] !== undefined) retryAfterMs = Math.ceil(Number(retry[1]) * 1000);
+
+  const quotaIds = [...text.matchAll(/"quotaId"\s*:\s*"([^"]+)"/g)].map((m) => m[1] ?? '');
+  if (quotaIds.some((id) => /perday|daily/i.test(id)) || /per day|daily/i.test(text)) scope = 'day';
+  else if (quotaIds.some((id) => /perminute/i.test(id)) || /per minute/i.test(text)) scope = 'minute';
+  return { scope, retryAfterMs };
+}
+
 const SERVER_FAILURE = new Set([500, 502, 503, 504]);
 const RETRYABLE = new Set([429, ...SERVER_FAILURE]);
 const MAX_BACKOFF_MS = 8000;
@@ -115,8 +145,9 @@ export class GoogleGenAiClient implements LlmClient {
     model: string,
     send: (model: string) => Promise<GenerateContentResponse>,
     onAttempt: () => void,
+    hasNextModel: boolean,
   ): Promise<GenerateContentResponse> {
-    const { maxRetries = 3, retryBaseMs = 1000, log } = this.options;
+    const { maxRetries = 3, retryBaseMs = 1000, quotaMaxWaitMs = 20000, log } = this.options;
     const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     const random = this.options.random ?? Math.random;
     for (let attempt = 0; ; attempt += 1) {
@@ -125,8 +156,19 @@ export class GoogleGenAiClient implements LlmClient {
         return await send(model);
       } catch (error) {
         const status = statusOf(error);
-        if (status === undefined || !RETRYABLE.has(status) || attempt >= maxRetries) throw error;
-        const delay = Math.min(retryBaseMs * 2 ** attempt, MAX_BACKOFF_MS) + Math.floor(random() * retryBaseMs * 0.5);
+        // Un timeout no se reintenta en el mismo modelo: ya costo todo el tiempo maximo; se pasa al siguiente modelo.
+        if (isTimeout(error) || status === undefined || !RETRYABLE.has(status) || attempt >= maxRetries) throw error;
+        let delay = Math.min(retryBaseMs * 2 ** attempt, MAX_BACKOFF_MS) + Math.floor(random() * retryBaseMs * 0.5);
+        if (status === 429) {
+          const quota = parseQuotaInfo(error);
+          log?.warn('Gemini: cuota agotada (429)', { model, scope: quota.scope, retryAfterMs: quota.retryAfterMs, haySiguienteModelo: hasNextModel });
+          // Cada modelo tiene su propia cuota: si hay otro, se prueba de inmediato. Una cuota diaria no se arregla esperando.
+          if (hasNextModel || quota.scope === 'day') throw error;
+          if (quota.retryAfterMs !== null) {
+            if (quota.retryAfterMs > quotaMaxWaitMs) throw error;
+            delay = quota.retryAfterMs + Math.floor(random() * 500);
+          }
+        }
         log?.warn('Gemini no disponible momentaneamente; se reintenta', { status, model, attempt: attempt + 1, maxRetries, waitMs: delay });
         await sleep(delay);
       }
@@ -137,11 +179,21 @@ export class GoogleGenAiClient implements LlmClient {
     const contents = request.messages.map(toContent);
     const functionDeclarations = request.tools.map(toDeclaration);
 
-    const send = (model: string): Promise<GenerateContentResponse> =>
-      this.ai.models.generateContent({
+    const timeoutMs = this.options.requestTimeoutMs ?? 20000;
+    const send = (model: string): Promise<GenerateContentResponse> => {
+      const controller = new AbortController();
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(Object.assign(new Error(`Sin respuesta de Gemini en ${timeoutMs} ms`), { status: 504, timedOut: true }));
+        }, timeoutMs);
+      });
+      const call = this.ai.models.generateContent({
         model,
         contents,
         config: {
+          abortSignal: controller.signal,
           systemInstruction: request.systemInstruction,
           temperature: request.temperature,
           maxOutputTokens: request.maxOutputTokens,
@@ -150,27 +202,35 @@ export class GoogleGenAiClient implements LlmClient {
           automaticFunctionCalling: { disable: true },
         },
       });
+      // Si el timeout gana, la llamada abortada puede rechazar despues: se silencia para evitar un rechazo sin manejar.
+      call.catch(() => undefined);
+      return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
+    };
 
-    const { model, fallbackModel } = this.options;
-    const models = fallbackModel && fallbackModel !== model ? [model, fallbackModel] : [model];
+    const { model, fallbackModels = [] } = this.options;
+    const models = [...new Set([model, ...fallbackModels.filter((name) => name.trim() !== '')])];
     let attempts = 0;
     let lastModel = model;
+    const tried: string[] = [];
 
     try {
       let lastError: unknown;
       for (const candidate of models) {
         lastModel = candidate;
+        tried.push(candidate);
         try {
+          const hasNext = models.indexOf(candidate) < models.length - 1;
           const response = await this.sendWithRetries(candidate, send, () => {
             attempts += 1;
-          });
+          }, hasNext);
           if (candidate !== model) this.options.log?.warn('Respuesta obtenida con el modelo alternativo', { model: candidate });
+          if (candidate === model && models.length > 1) this.options.log?.debug('Respuesta del modelo principal', { model });
           return fromResponse(response);
         } catch (error) {
           lastError = error;
           const failure = statusOf(error);
-          // Solo se pasa al modelo alternativo ante fallos de servidor; 429/401/404/400 no mejoran cambiando de modelo.
-          if (failure === undefined || !SERVER_FAILURE.has(failure)) throw error;
+          // Se pasa al siguiente modelo ante fallo de servidor, timeout o cuota (429, que es por modelo); 401/403/404/400 no mejoran.
+          if (failure === undefined || !(SERVER_FAILURE.has(failure) || failure === 429)) throw error;
         }
       }
       throw lastError;
@@ -179,13 +239,23 @@ export class GoogleGenAiClient implements LlmClient {
       if (status !== undefined && SERVER_FAILURE.has(status)) {
         throw new AppError('LLM_UNAVAILABLE', 'El servicio de IA esta con mucha demanda; intenta de nuevo en unos segundos', 503, {
           status,
+          timedOut: isTimeout(error),
+          modelsTried: tried,
           model: lastModel,
           attempts,
           cause: truncate(error instanceof Error ? error.message : String(error), 800),
         });
       }
       if (status === 429) {
-        throw new AppError('RATE_LIMITED', 'El servicio de IA esta saturado; intenta de nuevo en un momento', 429);
+        const quota = parseQuotaInfo(error);
+        this.options.log?.warn('Cuota de Gemini agotada en todos los modelos probados', { modelsTried: tried, scope: quota.scope });
+        throw new AppError('LLM_QUOTA', 'Se alcanzo el limite de uso de Gemini; espera un momento e intenta de nuevo', 429, {
+          status,
+          scope: quota.scope,
+          retryAfterSeconds: quota.retryAfterMs === null ? null : Math.ceil(quota.retryAfterMs / 1000),
+          modelsTried: tried,
+          cause: truncate(error instanceof Error ? error.message : String(error), 800),
+        });
       }
       if (status === 401 || status === 403) {
         throw new AppError('LLM_AUTH_ERROR', 'Google rechazo la clave de Gemini; revisa GEMINI_API_KEY', 502, {

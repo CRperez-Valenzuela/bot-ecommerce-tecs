@@ -725,6 +725,12 @@
       var wait = err.details && err.details.retryAfterSeconds;
       text = 'Demasiados mensajes en poco tiempo.' + (wait ? ' Intenta de nuevo en ' + wait + ' s.' : '');
     }
+    if (err.code === 'LLM_QUOTA') {
+      var quotaWait = err.details && err.details.retryAfterSeconds;
+      text = err.details && err.details.scope === 'day'
+        ? 'Se agotó la cuota diaria de Gemini para este modelo. Prueba más tarde o con otro modelo.'
+        : 'Se alcanzó el límite de uso de Gemini (no es el límite del simulador).' + (quotaWait ? ' Intenta de nuevo en ' + quotaWait + ' s.' : ' Espera un momento y pulsa Reintentar.');
+    }
     var bubble = h('div', { class: 'bubble error' },
       h('strong', { text: title + ' (' + err.code + ')' }), '\n' + text);
     var meta = h('div', { class: 'meta' });

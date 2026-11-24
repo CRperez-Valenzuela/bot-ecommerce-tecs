@@ -46,8 +46,12 @@ export interface AppConfig {
     /** Reintentos ante alta demanda (429/5xx) y espera base en ms (retroceso exponencial). */
     maxRetries: number;
     retryBaseMs: number;
-    /** Modelo alternativo ante fallos de servidor persistentes; null = ninguno. */
-    fallbackModel: string | null;
+    /** Modelos alternativos en orden ante fallos de servidor o timeout (GEMINI_FALLBACK_MODEL, separados por coma). */
+    fallbackModels: string[];
+    /** Tiempo maximo por intento a Gemini en ms. */
+    requestTimeoutMs: number;
+    /** Espera maxima (ms) ante un 429 de cuota por minuto en el ultimo modelo; si Google pide mas, se devuelve LLM_QUOTA. */
+    quotaMaxWaitMs: number;
     temperature: number;
     maxToolRounds: number;
   };
@@ -250,7 +254,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       model: r.str('GEMINI_MODEL', DEFAULT_GEMINI_MODEL),
       maxRetries: r.int('GEMINI_MAX_RETRIES', 3, 0, 6),
       retryBaseMs: r.int('GEMINI_RETRY_BASE_MS', 1000, 0, 30000),
-      fallbackModel: r.str('GEMINI_FALLBACK_MODEL') || null,
+      fallbackModels: r.str('GEMINI_FALLBACK_MODEL').split(',').map((name) => name.trim()).filter((name) => name !== ''),
+      requestTimeoutMs: r.int('GEMINI_REQUEST_TIMEOUT_MS', 20000, 1000, 120000),
+      quotaMaxWaitMs: r.int('GEMINI_QUOTA_MAX_WAIT_MS', 20000, 0, 120000),
       temperature: r.float('GEMINI_TEMPERATURE', 0.4, 0, 2),
       maxToolRounds: r.int('GEMINI_MAX_TOOL_ROUNDS', 6, 1, 12),
     },

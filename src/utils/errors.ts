@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'LLM_AUTH_ERROR'
   | 'LLM_MODEL_ERROR'
   | 'LLM_UNAVAILABLE'
+  | 'LLM_QUOTA'
   | 'REPOSITORY_ERROR'
   | 'ODOO_UNREACHABLE'
   | 'ODOO_AUTH_FAILED'

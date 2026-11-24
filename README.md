@@ -39,7 +39,7 @@ usa las pruebas rapidas y mira en vivo como la IA va llenando el armado de PC y 
 4. Se aceptan claves `AQ.Ab...` y `AIza...`; no se valida el formato. Si Google la rechaza (401/403) la respuesta es `LLM_AUTH_ERROR`:
    copia la clave completa y confirma que su proyecto tiene habilitada la API de Gemini.
 4b. Si el log muestra `LLM_MODEL_ERROR` (404), el modelo ya no existe para tu cuenta: cambia `GEMINI_MODEL` en `.env` (por defecto `gemini-3.8-flash`) y reinicia.
-4c. `LLM_UNAVAILABLE` (503) = Gemini con alta demanda temporal: el servidor ya reintenta solo (`GEMINI_MAX_RETRIES`, `GEMINI_RETRY_BASE_MS`); puedes definir `GEMINI_FALLBACK_MODEL` como respaldo.
+4c. `LLM_UNAVAILABLE` (503) = Gemini con alta demanda temporal: el servidor ya reintenta solo (`GEMINI_MAX_RETRIES`, `GEMINI_RETRY_BASE_MS`); puedes definir `GEMINI_FALLBACK_MODEL` (uno o varios modelos separados por coma) como respaldo; `GEMINI_REQUEST_TIMEOUT_MS` limita cada intento. Un 429 de Gemini (cuota agotada) sale como `LLM_QUOTA` y no es el límite del servidor (ese es `RATE_LIMITED`). Para saber qué modelos responden con tu clave: `node probe-models.js modelo1 modelo2`.
 5. Tras editar `.env`, reinicia `npm run dev` (el modo watch no vigila archivos que empiezan con punto).
 6. Evita crear el `.env` con `echo ... > .env` de PowerShell (genera UTF-16); el cargador lo tolera y avisa, pero guárdalo como UTF-8.
 
